@@ -21,6 +21,9 @@ TalentLens AI is a Streamlit resume screener backed by Claude (`claude-haiku-4-5
 
 **Request flow:** `app/ui/TalentLens_AI.py` → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
 
+- New agents must call `call_ai()` (services/ai_service.py) and `extract_json()` (utils/json_parser.py) rather than calling the Anthropic client or parsing JSON themselves.
+- Rule-based checks belong in app/utils/, not inside agents.
+
 Streamlit pages run as scripts, so `TalentLens_AI.py` and `pages/dashboard.py` insert the repo root into `sys.path` before `from app...` imports — keep that pattern in any new page.
 
 **Feature flags in `TalentLens_AI.py`:** `SHOW_ALL_AGENT_MODES = False` hides JD Refinement, Resume Enhancement, Interview Scheduler and Interview Preparation (code intact, only "Resume Screening" is selectable); `SHOW_APPROVAL_BUTTONS = False` hides approve/reject. Resume Screening has its own JD → upload → button flow; the other modes use `st.chat_input`.
