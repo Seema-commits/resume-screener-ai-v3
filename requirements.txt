@@ -5,5 +5,5 @@ requests
 PyPDF2
 python-docx
 pydantic
-sqlalchemy
+sqlalchemy<2.1
 psycopg2-binary
