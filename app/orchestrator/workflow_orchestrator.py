@@ -69,7 +69,8 @@ class WorkflowOrchestrator:
                     score_threshold=payload[
                         "score_threshold"
                     ],
-                    api_key=payload.get("api_key")
+                    api_key=payload.get("api_key"),
+                    cache=payload.get("cache")
                 )
             )
 

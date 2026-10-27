@@ -35,6 +35,8 @@ Streamlit pages run as scripts, so `TalentLens_AI.py` and `pages/dashboard.py` i
 4. **Score** (LLM, `SCREENING_PROMPT`): batches of 4 get per-criterion scores with reasons; the deterministic flags are passed in to be copied verbatim. The overall score must equal the criteria sum.
 5. **Classify** (no LLM): `classify_candidates` applies the threshold (UI slider 1–10 × 10) and `top_n`, with deterministic tie-breaks (score, Skills, Experience, name).
 
-Every LLM call retries up to 3 times on bad JSON; a batch that still fails is logged and skipped rather than failing the whole run. Keep LLM output compact — the prompts cap reason length to avoid truncation at `max_tokens`.
+**Incremental re-screening:** the UI passes `st.session_state.screening_cache` as `cache`. Parsed profiles are cached by resume fingerprint (file name + text) and scores by JD fingerprint + resume fingerprint, so re-running after adding resumes only sends new ones to Claude, and editing the JD re-scores without re-parsing. "Start New Screening Session" clears it.
+
+Every LLM call retries up to 3 times on bad JSON; a batch that still fails is logged and skipped (and not cached) rather than failing the whole run. Keep LLM output compact — the prompts cap reason length to avoid truncation at `max_tokens`.
 
 **Output and logging:** `services/results_display.render_full_results` renders screening results (shared by the main page and Dashboard). `services/logging_service.log_event` writes to both `logs/<session_id>.log` (JSON lines) and the `agent_logs` table; the Logs page reads from these.
