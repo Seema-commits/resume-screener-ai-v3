@@ -25,8 +25,10 @@ from app.services.logging_service import log_event
 # at scale).
 BATCH_SIZE = 4
 
-PARSE_MAX_TOKENS_PER_BATCH = 6000
-SCORING_MAX_TOKENS_PER_BATCH = 4000
+# Thinking tokens count toward these caps too (Haiku 5.5 thinks
+# before answering), so they leave room above the JSON itself.
+PARSE_MAX_TOKENS_PER_BATCH = 12000
+SCORING_MAX_TOKENS_PER_BATCH = 8000
 
 
 def _split_into_candidate_chunks(candidate_text):
