@@ -17,7 +17,7 @@ Configuration is read from Streamlit secrets first (`.streamlit/secrets.toml` / 
 
 ## Architecture
 
-TalentLens AI is a Streamlit resume screener backed by Claude (`claude-haiku-4-5-20251001`, set in `app/services/ai_service.py`; the anthropic SDK 2.x rejects `temperature`/`top_p`/`top_k`).
+TalentLens AI is a Streamlit resume screener backed by Claude (`claude-haiku-5-5` at effort `low`, set by `MODEL`/`EFFORT` in `app/services/ai_service.py`). Haiku 5.5 always thinks first: read text blocks by type, not `content[0]`, and leave `max_tokens` room for thinking. Don't send `temperature`/`top_p`/`top_k` — the API rejects them.
 
 **Request flow:** `app/ui/TalentLens_AI.py` → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
 

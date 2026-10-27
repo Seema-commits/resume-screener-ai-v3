@@ -68,10 +68,18 @@ def call_local_model(user_message):
         return None
 
 
+MODEL = "claude-haiku-5-5"
+
+# Haiku 5.5 thinks before answering (adaptive thinking is always
+# on). "low" keeps thinking short for these structured extraction
+# and scoring calls - the cheapest and fastest level.
+EFFORT = "low"
+
+
 def call_ai(
     user_message,
     system_prompt=None,
-    max_tokens=2000,
+    max_tokens=4000,
     api_key=None
 ):
     """
@@ -93,16 +101,34 @@ def call_ai(
     if client:
         try:
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=MODEL,
                 max_tokens=max_tokens,
+                output_config={"effort": EFFORT},
                 system=system_prompt or "",
                 messages=[{"role": "user", "content": user_message}]
             )
-            return response.content[0].text
         except Exception as e:
             raise RuntimeError(
                 f"Anthropic API call failed: {str(e)}"
             )
+
+        if response.stop_reason == "refusal":
+            raise RuntimeError("Claude declined this request.")
+
+        # The response can start with thinking blocks, so collect
+        # the text blocks rather than reading content[0].
+        text = "".join(
+            block.text for block in response.content
+            if block.type == "text"
+        )
+
+        if not text and response.stop_reason == "max_tokens":
+            raise RuntimeError(
+                "Claude used the whole max_tokens budget before "
+                "answering - raise max_tokens for this call."
+            )
+
+        return text
 
     # No API key at all - try local model as a last resort
     # (only meaningful for local development, not once deployed)
