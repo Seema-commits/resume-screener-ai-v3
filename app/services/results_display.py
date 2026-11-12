@@ -38,6 +38,14 @@ def _html_escape(text):
     )
 
 
+DECISION_ICONS = {"Advance": "🟢", "Hold": "🟡", "Reject": "🔴"}
+
+
+def _decision_badge(candidate):
+    decision = candidate.get("decision") or "—"
+    return f"{DECISION_ICONS.get(decision, '')} {decision}".strip()
+
+
 def _flag_summary(candidate, max_shown=2):
     """
     Compact, visible flag summary for the table - full detail
@@ -88,14 +96,21 @@ def _render_table(candidates, label):
         anchor_id = _slugify(raw_name)
         name_link = f'<a href="#{anchor_id}">{name}</a>'
         score = _html_escape(f"{c.get('score', 'N/A')}/100")
-        recommendation = _html_escape(c.get("recommendation", ""))
+        decision = (
+            f"<b>{_html_escape(_decision_badge(c))}</b><br>"
+            f"<small>{_html_escape(c.get('decision_reason') or '')}</small>"
+        )
+        summary = _html_escape(
+            c.get("summary") or c.get("recommendation", "")
+        )
         flags = _html_escape(_flag_summary(c))
 
         row_parts.append(
             "<tr>"
             f'<td class="col-name">{name_link}</td>'
             f'<td class="col-score">{score}</td>'
-            f'<td class="col-text">{recommendation}</td>'
+            f'<td class="col-decision">{decision}</td>'
+            f'<td class="col-text">{summary}</td>'
             f'<td class="col-text">{flags}</td>'
             "</tr>"
         )
@@ -113,9 +128,10 @@ def _render_table(candidates, label):
         "border-bottom:1px solid #444;vertical-align:top;"
         "white-space:normal;word-wrap:break-word;"
         "overflow-wrap:break-word;line-height:1.4;}"
-        ".screening-table .col-name{width:16%;}"
-        ".screening-table .col-score{width:10%;}"
-        ".screening-table .col-text{width:37%;}"
+        ".screening-table .col-name{width:15%;}"
+        ".screening-table .col-score{width:9%;}"
+        ".screening-table .col-decision{width:22%;}"
+        ".screening-table .col-text{width:27%;}"
         "</style>"
     )
 
@@ -124,7 +140,8 @@ def _render_table(candidates, label):
         + '<table class="screening-table"><thead><tr>'
         + '<th class="col-name">Candidate</th>'
         + '<th class="col-score">Score</th>'
-        + '<th class="col-text">Recommendation</th>'
+        + '<th class="col-decision">Decision</th>'
+        + '<th class="col-text">Summary</th>'
         + '<th class="col-text">Flags</th>'
         + "</tr></thead><tbody>"
         + rows_html
@@ -140,8 +157,9 @@ def build_csv(all_results):
     writer = csv.writer(output)
 
     writer.writerow([
-        "Candidate", "Status", "Score", "Recommendation",
-        "Flags", "Matched Skills", "Missing Skills"
+        "Candidate", "Status", "Score", "Decision", "Decision Reason",
+        "Summary", "Recommendation", "Flags", "Matched Skills",
+        "Missing Skills", "Phone-Screen Questions"
     ])
 
     for c in all_results:
@@ -150,12 +168,16 @@ def build_csv(all_results):
             c.get("candidate_name", ""),
             c.get("status", ""),
             c.get("score", ""),
+            c.get("decision") or "",
+            c.get("decision_reason") or "",
+            c.get("summary", ""),
             c.get("recommendation", ""),
             "; ".join(
                 f.get("description", "") for f in c.get("flags", [])
             ),
             ", ".join(c.get("matched_skills", [])),
             ", ".join(c.get("missing_skills", [])),
+            " | ".join(c.get("phone_screen_questions", [])),
         ])
 
     return output.getvalue()
@@ -290,6 +312,15 @@ def render_full_results(result_to_render, show_downloads=False):
 
             st.metric("Overall Score", f"{candidate.get('score', 'N/A')}/100")
 
+            if candidate.get("decision"):
+                st.write(
+                    f"**Decision: {_decision_badge(candidate)}** — "
+                    f"{candidate.get('decision_reason', '')}"
+                )
+
+            if candidate.get("summary"):
+                st.write(f"**Summary:** {candidate['summary']}")
+
             criteria = candidate.get("criteria", [])
 
             if criteria:
@@ -318,6 +349,12 @@ def render_full_results(result_to_render, show_downloads=False):
                     st.write(f"• {g}")
             else:
                 st.write("• None")
+
+            questions = candidate.get("phone_screen_questions", [])
+            if questions:
+                st.write("**Phone-screen questions:**")
+                for q in questions:
+                    st.write(f"• {q}")
 
             flags = candidate.get("flags", [])
             st.write("**Flags:**")

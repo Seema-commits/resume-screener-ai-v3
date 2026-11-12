@@ -8,6 +8,8 @@ from app.prompts.parsing_prompts import PARSE_PROMPT
 from app.utils.json_parser import extract_json
 from app.utils.date_utils import run_integrity_checks
 from app.utils.weight_rules import derive_criteria_weights
+from app.utils.decision_rules import decide
+from app.utils.pii_masking import mask_resume, unmask
 from app.utils.location_rules import (
     parse_jd_location,
     check_location_mismatch
@@ -379,10 +381,16 @@ class ScreeningAgent:
         jd_key = _fingerprint(job_description)
 
         # One entry per distinct resume, in upload order - the
-        # same file uploaded twice is only screened once.
+        # same file uploaded twice is only screened once. Each is
+        # masked (name/email/phone) before it can reach the LLM;
+        # `names` restores the real names in the output.
         resumes = {}
+        names = {}
         for chunk in _split_into_candidate_chunks(candidate_text):
-            resumes.setdefault(_resume_key(chunk), chunk)
+            key = _resume_key(chunk)
+            if key not in resumes:
+                token = f"CANDIDATE_{key[:6].upper()}"
+                resumes[key], names[token] = mask_resume(chunk, token)
 
         # ---------------------------------------
         # Stage 1 - parse resumes not parsed before
@@ -561,6 +569,11 @@ class ScreeningAgent:
         # Classify (deterministic, in code)
         # ---------------------------------------
 
+        for candidate in all_candidates:
+            candidate.decision, candidate.decision_reason = (
+                decide(candidate)
+            )
+
         score_threshold_100 = score_threshold * 10
 
         shortlisted, rejected = self.classify_candidates(
@@ -569,7 +582,7 @@ class ScreeningAgent:
             score_threshold_100
         )
 
-        output = {
+        output = unmask({
             "shortlisted_candidates": [
                 c.model_dump() for c in shortlisted
             ],
@@ -588,7 +601,7 @@ class ScreeningAgent:
                 "screened_now": len(all_candidates) - reused_count,
                 "reused": reused_count
             }
-        }
+        }, names)
 
         log_event(
             session_id=session_id,

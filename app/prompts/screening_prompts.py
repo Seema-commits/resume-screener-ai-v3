@@ -83,6 +83,22 @@ your own commentary if the candidate is in a genuinely different
 country than the JD requires, matching the same policy the
 deterministic location flag already uses.
 
+RECRUITER FIELDS:
+
+- "summary": ONE sentence (under 25 words) a recruiter can read at a
+  glance - fit, biggest strength, biggest concern.
+- "missing_must_haves": skills the JD states as REQUIRED (e.g. under
+  "Requirements" or "must have") that do not appear in the
+  candidate's skills array. Never include nice-to-have skills. Empty
+  list if none are missing.
+- "phone_screen_questions": 2-3 short questions for a phone screen,
+  each targeting one of this candidate's gaps, missing skills or
+  flags (e.g. ask about an overlapping role or an unverified skill).
+
+PRIVACY: candidate names, emails and phone numbers are masked
+(CANDIDATE_xxxxxx, [EMAIL], [PHONE]). Use the candidate_name exactly
+as given and never guess a real name.
+
 Required JSON format (criterion names/max_scores below are
 illustrative - use the ACTUAL ones given to you in the user
 message):
@@ -130,7 +146,10 @@ message):
           "evidence": "string"
         }
       ],
-      "recommendation": "string"
+      "recommendation": "string",
+      "summary": "string",
+      "missing_must_haves": [],
+      "phone_screen_questions": ["string"]
     }
   ]
 }
