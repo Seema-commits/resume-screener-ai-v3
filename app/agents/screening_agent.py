@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 
@@ -7,12 +8,16 @@ from app.prompts.parsing_prompts import PARSE_PROMPT
 from app.utils.json_parser import extract_json
 from app.utils.date_utils import run_integrity_checks
 from app.utils.weight_rules import derive_criteria_weights
+from app.utils.decision_rules import decide
+from app.utils.pii_masking import mask_resume, unmask
 from app.utils.location_rules import (
     parse_jd_location,
     check_location_mismatch
 )
 from app.models.screening_models import (
+    CandidateEvaluation,
     CandidateScoringResponse,
+    ParsedProfile,
     ParsedProfilesResponse
 )
 from app.services.logging_service import log_event
@@ -43,6 +48,20 @@ def _split_into_candidate_chunks(candidate_text):
     return [p.strip() for p in parts if p.strip()]
 
 
+def _fingerprint(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _resume_key(chunk):
+    """
+    Identity of one uploaded resume: its file-derived name and its
+    text. The "Candidate N" number is left out because it shifts
+    when more files are added.
+    """
+
+    return _fingerprint(re.sub(r"^--- Candidate \d+:", "---", chunk))
+
+
 class ScreeningAgent:
 
     # -----------------------------------------------
@@ -51,11 +70,14 @@ class ScreeningAgent:
     # Facts only - no scoring/judgment happens here.
     # Done in batches so large resume counts can't
     # truncate the response.
+    #
+    # Returns (index, profile) pairs, where index is the
+    # position in `chunks` the profile came from, or None
+    # when a batch returned a different number of
+    # profiles than it was sent and they can't be matched.
     # -----------------------------------------------
 
-    def parse_resumes(self, session_id, candidate_text, api_key=None):
-
-        chunks = _split_into_candidate_chunks(candidate_text)
+    def parse_resumes(self, session_id, chunks, api_key=None):
 
         if not chunks:
             return []
@@ -92,7 +114,18 @@ class ScreeningAgent:
 
                     parsed = extract_json(response)
                     validated = ParsedProfilesResponse(**parsed)
-                    all_profiles.extend(validated.profiles)
+
+                    # The model returns profiles in the order the
+                    # resumes were sent; if the count doesn't match,
+                    # keep them but don't guess which is which.
+                    if len(validated.profiles) == len(batch_chunks):
+                        indexes = range(i, i + len(batch_chunks))
+                    else:
+                        indexes = [None] * len(validated.profiles)
+
+                    all_profiles.extend(
+                        zip(indexes, validated.profiles)
+                    )
                     last_exception = None
                     break  # success - no need to retry
 
@@ -139,7 +172,9 @@ class ScreeningAgent:
                 # lets you compare what Stage 1 actually extracted
                 # between two runs if a flag (e.g. date overlap)
                 # unexpectedly appears or disappears.
-                "profiles": [p.model_dump() for p in all_profiles]
+                "profiles": [
+                    p.model_dump() for _, p in all_profiles
+                ]
             }
         )
 
@@ -329,18 +364,48 @@ class ScreeningAgent:
         candidate_text,
         top_n,
         score_threshold,
-        api_key=None
+        api_key=None,
+        cache=None
     ):
 
+        # cache: a dict the caller keeps between runs (the UI
+        # keeps one per screening session). Resumes parsed in an
+        # earlier run, and their scores against the same job
+        # description, are reused from it, so adding resumes only
+        # sends the new ones to Claude. None screens everything.
+        if cache is None:
+            cache = {}
+
+        profile_cache = cache.setdefault("profiles", {})
+        score_cache = cache.setdefault("scores", {})
+        jd_key = _fingerprint(job_description)
+
+        # One entry per distinct resume, in upload order - the
+        # same file uploaded twice is only screened once. Each is
+        # masked (name/email/phone) before it can reach the LLM;
+        # `names` restores the real names in the output.
+        resumes = {}
+        names = {}
+        for chunk in _split_into_candidate_chunks(candidate_text):
+            key = _resume_key(chunk)
+            if key not in resumes:
+                token = f"CANDIDATE_{key[:6].upper()}"
+                resumes[key], names[token] = mask_resume(chunk, token)
+
         # ---------------------------------------
-        # Stage 1
+        # Stage 1 - parse resumes not parsed before
         # ---------------------------------------
+
+        new_resumes = [
+            (key, chunk) for key, chunk in resumes.items()
+            if key not in profile_cache
+        ]
 
         try:
 
-            profiles = self.parse_resumes(
+            parsed = self.parse_resumes(
                 session_id,
-                candidate_text,
+                [chunk for _, chunk in new_resumes],
                 api_key=api_key
             )
 
@@ -357,6 +422,26 @@ class ScreeningAgent:
                 "error": "Resume parsing failed",
                 "details": str(e)
             }
+
+        unmatched_profiles = []
+
+        for index, profile in parsed:
+            if index is None:
+                unmatched_profiles.append(profile)
+            else:
+                profile_cache[new_resumes[index][0]] = (
+                    profile.model_dump()
+                )
+
+        # (resume key, profile) for every resume in this run; key
+        # is None for profiles that couldn't be matched to a file,
+        # which are screened this run but never cached.
+        keyed_profiles = [
+            (key, ParsedProfile(**profile_cache[key]))
+            for key in resumes if key in profile_cache
+        ] + [(None, p) for p in unmatched_profiles]
+
+        profiles = [p for _, p in keyed_profiles]
 
         # ---------------------------------------
         # Stage 2
@@ -392,28 +477,51 @@ class ScreeningAgent:
         )
 
         # ---------------------------------------
-        # Stage 3 - score in batches
+        # Stage 3 - score, in batches, only the
+        # resumes without a score for this JD yet
         # ---------------------------------------
 
-        all_candidates = []
+        def score_key(key):
+            return f"{jd_key}:{key}"
+
+        to_score = [
+            (key, profile) for key, profile in keyed_profiles
+            if key is None or score_key(key) not in score_cache
+        ]
+
+        reused_count = len(keyed_profiles) - len(to_score)
+
+        unmatched_candidates = []
         last_error = None
 
-        for i in range(0, len(profiles), BATCH_SIZE):
+        for i in range(0, len(to_score), BATCH_SIZE):
 
-            batch = profiles[i:i + BATCH_SIZE]
+            batch = to_score[i:i + BATCH_SIZE]
 
             try:
 
                 batch_candidates = self.score_batch(
                     session_id,
                     job_description,
-                    batch,
+                    [profile for _, profile in batch],
                     deterministic_flags,
                     criteria_weights,
                     api_key=api_key
                 )
 
-                all_candidates.extend(batch_candidates)
+                key_by_name = {
+                    profile.candidate_name: key
+                    for key, profile in batch
+                }
+
+                for candidate in batch_candidates:
+                    key = key_by_name.get(candidate.candidate_name)
+                    if key is None:
+                        unmatched_candidates.append(candidate)
+                    else:
+                        score_cache[score_key(key)] = (
+                            candidate.model_dump()
+                        )
 
             except Exception as e:
 
@@ -434,8 +542,15 @@ class ScreeningAgent:
                 )
 
                 # one failed batch shouldn't sink the whole run -
-                # skip it and keep going with the rest
+                # skip it and keep going with the rest (its
+                # resumes aren't cached, so the next run retries)
                 continue
+
+        all_candidates = [
+            CandidateEvaluation(**score_cache[score_key(key)])
+            for key, _ in keyed_profiles
+            if key is not None and score_key(key) in score_cache
+        ] + unmatched_candidates
 
         if not all_candidates:
 
@@ -454,6 +569,11 @@ class ScreeningAgent:
         # Classify (deterministic, in code)
         # ---------------------------------------
 
+        for candidate in all_candidates:
+            candidate.decision, candidate.decision_reason = (
+                decide(candidate)
+            )
+
         score_threshold_100 = score_threshold * 10
 
         shortlisted, rejected = self.classify_candidates(
@@ -462,7 +582,7 @@ class ScreeningAgent:
             score_threshold_100
         )
 
-        output = {
+        output = unmask({
             "shortlisted_candidates": [
                 c.model_dump() for c in shortlisted
             ],
@@ -475,8 +595,13 @@ class ScreeningAgent:
             "criteria_weights": criteria_weights,
             "matched_weight_signals": weight_result[
                 "matched_signals"
-            ]
-        }
+            ],
+            "run_stats": {
+                "resumes": len(resumes),
+                "screened_now": len(all_candidates) - reused_count,
+                "reused": reused_count
+            }
+        }, names)
 
         log_event(
             session_id=session_id,

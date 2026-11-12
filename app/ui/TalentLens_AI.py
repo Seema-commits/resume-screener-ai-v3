@@ -79,6 +79,12 @@ if "user_api_key" not in st.session_state:
     # Session-only, never written to disk/DB - see Settings page.
     st.session_state.user_api_key = ""
 
+if "screening_cache" not in st.session_state:
+    # Parsed resumes and their scores from earlier runs in this
+    # screening session, so re-running after adding resumes only
+    # sends the new ones to Claude.
+    st.session_state.screening_cache = {}
+
 # ---------------------------------------------------
 # FEATURE FLAGS
 # ---------------------------------------------------
@@ -158,9 +164,10 @@ with st.sidebar:
     )
 
     st.caption(
-        "Adding more resumes and clicking 'Screen Resumes Now' "
-        "again re-screens everyone currently listed above "
-        "(old + new) together."
+        "To add candidates, upload more resumes here and click "
+        "'Screen Resumes Now' again - the job description stays, "
+        "and only the new resumes are sent to the AI. Everyone "
+        "listed above is ranked together."
     )
 
     if st.session_state.latest_result is not None:
@@ -171,6 +178,7 @@ with st.sidebar:
             st.session_state.latest_result = None
             st.session_state.latest_agent_mode = None
             st.session_state.screening_jd = ""
+            st.session_state.screening_cache = {}
             st.session_state.session_id = str(uuid.uuid4())
 
             st.rerun()
@@ -310,7 +318,8 @@ if agent_mode == "Resume Screening":
                             "api_key": (
                                 st.session_state.user_api_key
                                 or None
-                            )
+                            ),
+                            "cache": st.session_state.screening_cache
                         }
                     )
 
@@ -485,6 +494,15 @@ if result_to_render is not None:
             st.session_state.latest_agent_mode == "Resume Screening"
             and "shortlisted_candidates" in result_to_render
         ):
+
+            run_stats = result_to_render.get("run_stats")
+
+            if run_stats and run_stats["reused"]:
+                st.caption(
+                    f"Screened {run_stats['screened_now']} new "
+                    f"resume(s) with AI; reused earlier results "
+                    f"for {run_stats['reused']}."
+                )
 
             render_full_results(result_to_render, show_downloads=False)
 

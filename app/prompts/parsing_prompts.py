@@ -24,7 +24,10 @@ DATE NORMALIZATION (important - this enables automated overlap checks):
 
 For EACH candidate found in the input, extract:
 
-- candidate_name
+- candidate_name: the anonymized ID from that candidate's
+  "--- Candidate N: CANDIDATE_xxxxxx ---" line, exactly as written.
+  Names, emails and phone numbers are masked for privacy - never
+  guess them.
 - location: the city/country stated near the candidate's name or
   contact info (e.g. "Dubai", "Pune, India", "Remote"). Use null
   if no location is stated. Do NOT guess a location from a company

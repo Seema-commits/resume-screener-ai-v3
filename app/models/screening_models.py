@@ -70,6 +70,13 @@ class CandidateEvaluation(BaseModel):
     weaknesses: List[str] = []
     flags: List[Flag] = []
     recommendation: str
+    summary: str = ""                     # one line for the recruiter
+    missing_must_haves: List[str] = []    # JD-required skills not held
+    phone_screen_questions: List[str] = []
+
+    # Set by code (utils/decision_rules.py), never by the LLM
+    decision: Optional[str] = None        # "Advance" | "Hold" | "Reject"
+    decision_reason: Optional[str] = None
 
 
 class CandidateScoringResponse(BaseModel):
