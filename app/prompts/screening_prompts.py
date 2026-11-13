@@ -90,7 +90,12 @@ RECRUITER FIELDS:
 - "missing_must_haves": skills the JD states as REQUIRED (e.g. under
   "Requirements" or "must have") that do not appear in the
   candidate's skills array. Never include nice-to-have skills. Empty
-  list if none are missing.
+  list if none are missing. Be strict about what counts as required:
+  * Items in brackets or after "e.g."/"such as" are EXAMPLES - e.g.
+    "AWS (ECS/EKS, RDS, Lambda)" requires AWS, not each service.
+  * "X or Y" (e.g. "Django or FastAPI") is met by either one.
+  * List the requirement itself (e.g. "AWS"), only when the candidate
+    shows no equivalent at all.
 - "phone_screen_questions": 2-3 short questions for a phone screen,
   each targeting one of this candidate's gaps, missing skills or
   flags (e.g. ask about an overlapping role or an unverified skill).

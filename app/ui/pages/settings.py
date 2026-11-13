@@ -53,11 +53,21 @@ chosen = [m for m in (new_model, new_fallback) if m]
 if any(provider_of(m) in FREE_TIER_PROVIDERS for m in chosen):
     st.warning(f"⚠️ {FREE_TIER_WARNING}")
 
+st.caption(
+    f"**Saved for {org['name']}:** {label_of(model)} → "
+    f"{label_of(fallback) if fallback else 'no fallback'}")
+if (new_model, new_fallback or None) != (model, fallback or None):
+    st.warning("⚠️ Unsaved changes — click **Save models** to apply them.")
+
+if st.session_state.pop("models_saved", False):
+    st.success("Saved.")
+
 save_col, test_col, _ = st.columns([1, 1, 3])
 if save_col.button("💾 Save models", type="primary"):
     try:
         llm_settings_service.set_models(user, org["id"], new_model, new_fallback)
-        st.success("Saved.")
+        st.session_state.models_saved = True
+        st.rerun()
     except AuthError as e:
         st.error(str(e))
 

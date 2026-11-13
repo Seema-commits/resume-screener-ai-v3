@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 
-from app.services.llm_client import call_ai
+from app.services.llm_client import call_ai, current_models
 from app.prompts.screening_prompts import SCREENING_PROMPT
 from app.prompts.parsing_prompts import PARSE_PROMPT
 from app.utils.json_parser import extract_json
@@ -339,9 +339,11 @@ class ScreeningAgent:
                 candidate.candidate_name
             )
 
+        # A Reject (e.g. a missing must-have) is never shortlisted,
+        # whatever its score.
         qualified = [
             c for c in candidates
-            if c.score >= score_threshold_100
+            if c.score >= score_threshold_100 and c.decision != "Reject"
         ]
 
         qualified.sort(key=_sort_key)
@@ -385,6 +387,13 @@ class ScreeningAgent:
         # sends the new ones to Claude. None screens everything.
         if cache is None:
             cache = {}
+
+        # Results from a different model are never reused - after the
+        # org's model changes, everything is screened again.
+        models = list(current_models())
+        if cache.get("models") != models:
+            cache.clear()
+            cache["models"] = models
 
         profile_cache = cache.setdefault("profiles", {})
         score_cache = cache.setdefault("scores", {})
