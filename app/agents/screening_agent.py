@@ -89,6 +89,16 @@ class ScreeningAgent:
             batch_chunks = chunks[i:i + BATCH_SIZE]
             batch_text = "\n\n".join(batch_chunks)
 
+            # Exactly what the LLM receives (already masked) - lets
+            # anyone verify on the Logs page that no name, email or
+            # phone number is sent.
+            log_event(
+                session_id=session_id,
+                agent_name="ScreeningAgent",
+                event_type="llm_input",
+                data={"stage": "parse", "text": batch_text}
+            )
+
             # Retry up to 3 total attempts - a malformed/truncated
             # JSON response from the model is often a one-off
             # glitch, not tied to specific resume content (we've
@@ -383,14 +393,16 @@ class ScreeningAgent:
         # One entry per distinct resume, in upload order - the
         # same file uploaded twice is only screened once. Each is
         # masked (name/email/phone) before it can reach the LLM;
-        # `names` restores the real names in the output.
+        # `contacts` restores the real details in the output.
         resumes = {}
-        names = {}
+        contacts = {}
         for chunk in _split_into_candidate_chunks(candidate_text):
             key = _resume_key(chunk)
             if key not in resumes:
                 token = f"CANDIDATE_{key[:6].upper()}"
-                resumes[key], names[token] = mask_resume(chunk, token)
+                resumes[key], contacts[token] = mask_resume(chunk, token)
+
+        names = {token: c["name"] for token, c in contacts.items()}
 
         # ---------------------------------------
         # Stage 1 - parse resumes not parsed before
@@ -573,6 +585,9 @@ class ScreeningAgent:
             candidate.decision, candidate.decision_reason = (
                 decide(candidate)
             )
+            contact = contacts.get(candidate.candidate_name, {})
+            candidate.email = contact.get("email")
+            candidate.phone = contact.get("phone")
 
         score_threshold_100 = score_threshold * 10
 

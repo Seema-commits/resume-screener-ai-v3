@@ -47,11 +47,24 @@ def mask_resume(chunk, token):
     """
     chunk: one "--- Candidate N: name ---" block from parser_service.
     token: the ID that replaces the name (e.g. "CANDIDATE_1A2B3C").
-    Returns (masked chunk, real candidate name).
+    Returns (masked chunk, contact), where contact is the real
+    {"name", "email", "phone"} found - kept in the app for the
+    recruiter, never sent to the LLM.
     """
 
     header, _, body = chunk.partition("\n")
-    name = _candidate_name(header, body)
+
+    email = EMAIL_RE.search(body)
+    phones = (
+        m.group() for m in PHONE_RE.finditer(body)
+        if _mask_phone(m) == "[PHONE]"
+    )
+    contact = {
+        "name": _candidate_name(header, body),
+        "email": email.group() if email else None,
+        "phone": next(phones, None),
+    }
+    name = contact["name"]
 
     body = PROFILE_URL_RE.sub("[PROFILE_URL]", body)
     body = EMAIL_RE.sub("[EMAIL]", body)
@@ -67,7 +80,7 @@ def mask_resume(chunk, token):
 
     masked_header = header.split(":", 1)[0] + f": {token} ---"
 
-    return f"{masked_header}\n{body}", name
+    return f"{masked_header}\n{body}", contact
 
 
 def unmask(value, names):
