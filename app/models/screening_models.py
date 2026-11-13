@@ -74,9 +74,11 @@ class CandidateEvaluation(BaseModel):
     missing_must_haves: List[str] = []    # JD-required skills not held
     phone_screen_questions: List[str] = []
 
-    # Set by code (utils/decision_rules.py), never by the LLM
+    # Set by code, never by the LLM
     decision: Optional[str] = None        # "Advance" | "Hold" | "Reject"
     decision_reason: Optional[str] = None
+    email: Optional[str] = None           # from the unmasked resume,
+    phone: Optional[str] = None           # for the recruiter only
 
 
 class CandidateScoringResponse(BaseModel):

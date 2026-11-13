@@ -46,6 +46,13 @@ def _decision_badge(candidate):
     return f"{DECISION_ICONS.get(decision, '')} {decision}".strip()
 
 
+def _contact_line(candidate, sep=" · "):
+    return sep.join(
+        _html_escape(v) for v in
+        (candidate.get("email"), candidate.get("phone")) if v
+    )
+
+
 def _flag_summary(candidate, max_shown=2):
     """
     Compact, visible flag summary for the table - full detail
@@ -95,6 +102,9 @@ def _render_table(candidates, label):
         name = _html_escape(raw_name)
         anchor_id = _slugify(raw_name)
         name_link = f'<a href="#{anchor_id}">{name}</a>'
+        contact = _contact_line(c, sep="<br>")
+        if contact:
+            name_link += f"<br><small>{contact}</small>"
         score = _html_escape(f"{c.get('score', 'N/A')}/100")
         decision = (
             f"<b>{_html_escape(_decision_badge(c))}</b><br>"
@@ -128,10 +138,10 @@ def _render_table(candidates, label):
         "border-bottom:1px solid #444;vertical-align:top;"
         "white-space:normal;word-wrap:break-word;"
         "overflow-wrap:break-word;line-height:1.4;}"
-        ".screening-table .col-name{width:15%;}"
+        ".screening-table .col-name{width:19%;}"
         ".screening-table .col-score{width:9%;}"
-        ".screening-table .col-decision{width:22%;}"
-        ".screening-table .col-text{width:27%;}"
+        ".screening-table .col-decision{width:20%;}"
+        ".screening-table .col-text{width:26%;}"
         "</style>"
     )
 
@@ -157,7 +167,8 @@ def build_csv(all_results):
     writer = csv.writer(output)
 
     writer.writerow([
-        "Candidate", "Status", "Score", "Decision", "Decision Reason",
+        "Candidate", "Email", "Phone", "Status", "Score",
+        "Decision", "Decision Reason",
         "Summary", "Recommendation", "Flags", "Matched Skills",
         "Missing Skills", "Phone-Screen Questions"
     ])
@@ -166,6 +177,8 @@ def build_csv(all_results):
 
         writer.writerow([
             c.get("candidate_name", ""),
+            c.get("email") or "",
+            c.get("phone") or "",
             c.get("status", ""),
             c.get("score", ""),
             c.get("decision") or "",
@@ -311,6 +324,9 @@ def render_full_results(result_to_render, show_downloads=False):
         with st.expander(expander_label):
 
             st.metric("Overall Score", f"{candidate.get('score', 'N/A')}/100")
+
+            if _contact_line(candidate):
+                st.write(f"**Contact:** {_contact_line(candidate)}")
 
             if candidate.get("decision"):
                 st.write(
