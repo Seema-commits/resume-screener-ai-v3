@@ -69,7 +69,8 @@ class WorkflowOrchestrator:
                     score_threshold=payload[
                         "score_threshold"
                     ],
-                    cache=payload.get("cache")
+                    cache=payload.get("cache"),
+                    progress=payload.get("progress")
                 )
             )
 

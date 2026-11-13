@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -r requirements.txt
 streamlit run app/ui/TalentLens_AI.py      # serves on :8501
+uvicorn backend.main:app --reload          # API on :8000, interactive docs at /docs (COOKIE_SECURE=false for local http)
 pytest tests/                              # security + LLM rules; uses DATABASE_URL (wiped!) or temp SQLite
 pytest tests/test_auth_and_permissions.py::test_scan_visibility_by_role   # one test
 python -m app.scripts.create_superadmin    # create a Superadmin from the command line
@@ -20,6 +21,7 @@ All secrets go through `app/config.get_secret(name)`.
 - `KEY_ENCRYPTION_SECRET` — any 32+ character random string; encrypts org keys. Changing it makes stored org keys unreadable (orgs must re-enter them).
 - `LLM_DEFAULT_MODEL` / `LLM_FALLBACK_MODEL` — optional LiteLLM model names for orgs without their own choice (default `anthropic/claude-haiku-5-5` → `anthropic/claude-sonnet-5-5`).
 - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` — optional; with both keys set, every LLM call is traced in Langfuse (default host EU `https://cloud.langfuse.com`; US `https://us.cloud.langfuse.com`). `LANGFUSE_TRACE_CONTENT = "false"` sends metadata only. Needs an app restart after changing.
+- API only: `FRONTEND_ORIGINS` (comma-separated, default `http://localhost:5173`) for CORS; `COOKIE_SECURE` (default `true`; `false` for local http); `COOKIE_SAMESITE` (default `lax`; `none` when the frontend is on another site).
 - `DATABASE_URL` — **required** Postgres (Neon). Logins, users and scan history live there; without it the app shows an error and stops. `init_db()` creates the tables (`create_all`, no migrations yet).
 - `BOOTSTRAP_SUPERADMIN_EMAIL` / `_PASSWORD` / `_NAME` — optional; while no Superadmin exists, `init_db()` creates one with this temporary password (must be changed at first login). Remove after first use.
 
@@ -31,7 +33,9 @@ TalentLens AI is a Streamlit resume screener. **All LLM calls go through `servic
 
 **Pages:** `TalentLens_AI.py` is the entry point for every page: DB check → login → forced password change (both shown with a hidden one-page menu, so a signed-out user sees no menu) → `st.navigation` with only the pages the role allows (`PAGES` list). Each page in `app/ui/pages/` also starts with `require(action)` from `app/ui/auth_ui.py` — keep that in any new page; hiding a page is never the only check. Pages run through the entry point, which puts the repo root on `sys.path`.
 
-**Request flow:** `app/ui/pages/screening.py` → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
+**API (`backend/`):** FastAPI for the coming React frontend, a thin layer over the same `app/` services — the Streamlit app keeps working alongside it. `backend/deps.py`: `current_user` reads the httpOnly session cookie (`auth_service.session_user`: only a SHA-256 of the token is stored in `user_sessions`; 8 h idle / 7 days max; ended on logout, deactivation and password reset), requires the `X-CSRF-Token` header (from `/api/auth/me`) on every non-GET, blocks everything but the auth endpoints until a temporary password is changed, and `require(action)` checks `has_permission`. Services still re-check (their `AuthError` → 400). `POST /api/scans` streams server-sent events (`progress` → `result`/`error`) while the pipeline runs in a thread with the request's context; its "only screen new resumes" cache lives in process memory per (user, scan). Uploads: PDF/DOCX, ≤ 20 resumes, ≤ 5 MB each. `app/context.get_current_user()` is how services (logging, LLM client) find the user in both front ends — use it rather than `st.session_state`.
+
+**Request flow:** `app/ui/pages/screening.py` (or `POST /api/scans`) → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
 
 - New agents must call `call_ai()` (services/llm_client.py) and `extract_json()` (utils/json_parser.py) rather than calling the Anthropic client or parsing JSON themselves.
 - Rule-based checks belong in app/utils/, not inside agents.

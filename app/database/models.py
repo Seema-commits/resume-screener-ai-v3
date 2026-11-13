@@ -85,6 +85,21 @@ class ScanResult(Base):
     result = Column(JSON)                            # evaluation + parsed profile
 
 
+class UserSession(Base):
+    """A browser signed in to the API (backend/). Only a SHA-256 hash
+    of the session cookie's token is stored."""
+
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    csrf_token = Column(String, nullable=False)     # sent back in X-CSRF-Token
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+
+
 class OrgLlmSetting(Base):
     """An org's chosen models (LiteLLM names). Orgs without a row use
     the defaults in app/llm_config.py. Never holds keys."""

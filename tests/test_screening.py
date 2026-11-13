@@ -4,9 +4,6 @@ shortlisted, and results from another model are never reused.
 LiteLLM is replaced by a fake that returns valid JSON.
 """
 
-import json
-import re
-from types import SimpleNamespace
 
 from conftest import make_world
 from app.agents.screening_agent import ScreeningAgent
@@ -32,28 +29,11 @@ def test_reject_is_never_shortlisted():
     assert [c.candidate_name for c in rest] == ["A"]
 
 
-def test_changing_the_model_screens_everything_again(monkeypatch):
+def test_changing_the_model_screens_everything_again(monkeypatch, fake_llm):
     admin, *_ = make_world()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-admin-test-key")
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-admin-test-key")
-    sent = []
-
-    def fake_completion(**kw):
-        sent.append(kw["model"])
-        system, user = kw["messages"][0]["content"], kw["messages"][-1]["content"]
-        if "resume parsing API" in system:
-            ids = re.findall(r"--- Candidate \d+: (\S+) ---", user)
-            text = {"profiles": [{"candidate_name": i, "skills": ["Python"]} for i in ids]}
-        else:
-            ids = list(dict.fromkeys(re.findall(r'"candidate_name": "(\S+?)"', user)))
-            text = {"candidates": [{"candidate_name": i, "score": 80,
-                                    "recommendation": "r"} for i in ids]}
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(text)),
-                                     finish_reason="stop")],
-            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1))
-
-    monkeypatch.setattr(llm_client.litellm, "completion", fake_completion)
+    sent = fake_llm
 
     agent, cache = ScreeningAgent(), {}
     run = lambda: agent.screen_candidates(

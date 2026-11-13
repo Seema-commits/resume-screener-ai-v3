@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import false
 
 from app.auth.permissions import has_permission
+from app.context import get_current_user
 from app.database.db import SessionLocal
 from app.database.models import AgentLog
 
@@ -83,15 +84,8 @@ def _current_ids():
     """(org_id, user_id) of the logged-in user, if any, so every
     log entry can be scoped by org like the other tables."""
 
-    try:
-        import streamlit as st
-        user = st.session_state.get("current_user")
-        if user is not None:
-            return user.org_id, user.id
-    except Exception:
-        pass
-
-    return None, None
+    user = get_current_user()
+    return (user.org_id, user.id) if user is not None else (None, None)
 
 
 def log_event(session_id, agent_name, event_type, data):
