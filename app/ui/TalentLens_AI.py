@@ -504,6 +504,13 @@ if result_to_render is not None:
                     f"for {run_stats['reused']}."
                 )
 
+            if run_stats and run_stats.get("suspicious"):
+                st.warning(
+                    f"🛡 {run_stats['suspicious']} resume(s) contain text "
+                    f"that looks like instructions to the AI. They are "
+                    f"flagged for manual review - see the ⚠️ Flags tab."
+                )
+
             render_full_results(result_to_render, show_downloads=False)
 
 
