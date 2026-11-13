@@ -7,26 +7,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -r requirements.txt
 streamlit run app/ui/TalentLens_AI.py      # serves on :8501
+pytest tests/                              # security rules; uses DATABASE_URL (wiped!) or temp SQLite
+pytest tests/test_auth_and_permissions.py::test_scan_visibility_by_role   # one test
+python -m app.scripts.create_superadmin    # create a Superadmin from the command line
 ```
 
-There is no test suite, linter, or build step. The dev container (`.devcontainer/devcontainer.json`, Python 3.11) installs requirements and starts the Streamlit server automatically.
+There is no linter or build step. The dev container (`.devcontainer/devcontainer.json`, Python 3.11) installs requirements and starts the Streamlit server automatically.
 
 Configuration is read from Streamlit secrets first (`.streamlit/secrets.toml` / deployed Secrets UI), then `.env` / environment variables:
-- `ANTHROPIC_API_KEY` — default key; a visitor can override it per-session on the Settings page (held only in `st.session_state.user_api_key`, passed down as `api_key`). With no key, `ai_service.call_ai` raises a clear error.
-- `DATABASE_URL` — Postgres for audit logs only; defaults to a local Postgres URL. The app must keep working when the DB is unreachable (`init_db()` returns False, `log_event` swallows errors).
+All secrets go through `app/config.get_secret(name)`.
+- `ANTHROPIC_API_KEY` — default key; the Superadmin can override it per-session on the Settings page (held only in `st.session_state.user_api_key`, passed down as `api_key`). With no key, `ai_service.call_ai` raises a clear error.
+- `DATABASE_URL` — **required** Postgres (Neon). Logins, users and scan history live there; without it the app shows an error and stops. `init_db()` creates the tables (`create_all`, no migrations yet).
+- `BOOTSTRAP_SUPERADMIN_EMAIL` / `_PASSWORD` / `_NAME` — optional; while no Superadmin exists, `init_db()` creates one with this temporary password (must be changed at first login). Remove after first use.
 
 ## Architecture
 
 TalentLens AI is a Streamlit resume screener backed by Claude (`claude-haiku-5-5` at effort `low`, set by `MODEL`/`EFFORT` in `app/services/ai_service.py`). Haiku 5.5 always thinks first: read text blocks by type, not `content[0]`, and leave `max_tokens` room for thinking. Don't send `temperature`/`top_p`/`top_k` — the API rejects them.
 
-**Request flow:** `app/ui/TalentLens_AI.py` → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
+**Users and roles:** `app/auth/permissions.py` is the only place that decides access — `has_permission(user, action)` from `ROLE_PERMISSIONS`, and `can_manage(actor, target_role, target_org_id)` (Superadmin manages HR Managers/Executives in any org; an HR Manager only HR Executives in her own org; Superadmins are created only via the bootstrap secrets or the script). Never check `user.role` elsewhere, and never let the LLM decide permissions. `services/auth_service.py` does bcrypt logins (5 failures lock the account; unlock = reset password), one-time temporary passwords with forced change, and deactivate-not-delete; every action re-checks `can_manage`. Passwords and staff emails are never logged. `services/scan_service.py` saves each screening session as one `scans` row plus `scan_results` rows (extracted results only, no resume files) and scopes every read by role in SQL. Every table has `org_id`.
+
+**Pages:** `TalentLens_AI.py` is the entry point for every page: DB check → login → forced password change → `st.navigation` with only the pages the role allows (`PAGES` list). Each page in `app/ui/pages/` also starts with `require(action)` from `app/ui/auth_ui.py` — keep that in any new page; hiding a page is never the only check. Pages run through the entry point, which puts the repo root on `sys.path`.
+
+**Request flow:** `app/ui/pages/screening.py` → `WorkflowOrchestrator.run_workflow(workflow, session_id, payload)` → an agent in `app/agents/` → `call_ai()` with a system prompt from `app/prompts/` → `extract_json()` (`app/utils/json_parser.py`) → Pydantic validation (`app/models/`).
 
 - New agents must call `call_ai()` (services/ai_service.py) and `extract_json()` (utils/json_parser.py) rather than calling the Anthropic client or parsing JSON themselves.
 - Rule-based checks belong in app/utils/, not inside agents.
 
-Streamlit pages run as scripts, so `TalentLens_AI.py` and `pages/dashboard.py` insert the repo root into `sys.path` before `from app...` imports — keep that pattern in any new page.
-
-**Feature flags in `TalentLens_AI.py`:** `SHOW_ALL_AGENT_MODES = False` hides JD Refinement, Resume Enhancement, Interview Scheduler and Interview Preparation (code intact, only "Resume Screening" is selectable); `SHOW_APPROVAL_BUTTONS = False` hides approve/reject. Resume Screening has its own JD → upload → button flow; the other modes use `st.chat_input`.
+**Feature flag in `pages/screening.py`:** `SHOW_ALL_AGENT_MODES = False` hides JD Refinement, Resume Enhancement, Interview Scheduler and Interview Preparation (code intact, only "Resume Screening" is selectable). Resume Screening has its own JD → upload → button flow; the other modes use `st.chat_input`.
 
 **Resume screening pipeline (`app/agents/screening_agent.py`)** — the core of the app. Design principle: the LLM extracts facts and scores; deterministic Python makes every judgment that must be explainable.
 1. **Parse** (LLM, `PARSE_PROMPT`): `parser_service.extract_multiple_resumes` joins resumes with `--- Candidate N: name ---` markers; the agent splits on those markers and sends `BATCH_SIZE = 4` per call into `ParsedProfile` (dates normalized to `YYYY-MM`/`present`). Changing the marker format breaks the split.
@@ -43,4 +50,4 @@ Streamlit pages run as scripts, so `TalentLens_AI.py` and `pages/dashboard.py` i
 
 Every LLM call retries up to 3 times on bad JSON; a batch that still fails is logged and skipped (and not cached) rather than failing the whole run. Keep LLM output compact — the prompts cap reason length to avoid truncation at `max_tokens`.
 
-**Output and logging:** `services/results_display.render_full_results` renders screening results (shared by the main page and Dashboard). `services/logging_service.log_event` writes to both `logs/<session_id>.log` (JSON lines) and the `agent_logs` table; the Logs page reads from these.
+**Output and logging:** `services/results_display.render_full_results` renders screening results (shared by the screening page and Scan History). `services/logging_service.log_event` writes to both `logs/<session_id>.log` (JSON lines) and the `agent_logs` table, tagging each entry with the logged-in user's `org_id`/`user_id`; the Logs page (Superadmin only) reads the files.

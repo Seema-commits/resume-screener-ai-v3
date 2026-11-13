@@ -6,3 +6,4 @@ python-docx
 pydantic
 sqlalchemy<2.1
 psycopg2-binary
+bcrypt

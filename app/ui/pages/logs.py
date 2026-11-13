@@ -1,23 +1,12 @@
-import sys
-import os
-
-sys.path.insert(
-    0,
-    os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
-)
-
 import json
 import glob
+import os
 
 import streamlit as st
 
-st.set_page_config(
-    page_title="Logs",
-    page_icon="🪵",
-    layout="wide"
-)
+from app.ui.auth_ui import require
+
+require("view_logs")
 
 st.title("🪵 Application Logs")
 

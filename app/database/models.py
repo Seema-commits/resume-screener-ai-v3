@@ -1,70 +1,98 @@
-from sqlalchemy.orm import declarative_base
+from datetime import datetime
+
 from sqlalchemy import (
+    Boolean,
     Column,
-    Integer,
-    String,
     DateTime,
+    Float,
+    ForeignKey,
+    Integer,
     JSON,
-    Boolean
+    String,
+    Text
 )
 
-from datetime import datetime
 from app.database.db import Base
 
-Base = declarative_base()
+
+# Every table carries org_id, so each query can be scoped to one
+# organization. Permission checks live in app/auth/permissions.py.
 
 
-# ---------------------------------------------------
-# Candidate Approval Table
-# ---------------------------------------------------
+class Organization(Base):
 
-class CandidateApproval(Base):
+    __tablename__ = "organizations"
 
-    __tablename__ = "candidate_approvals"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    id = Column(Integer, primary_key=True, index=True)
 
-    session_id = Column(String)
+class User(Base):
 
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False, index=True)  # login name
+    password_hash = Column(String, nullable=False)   # bcrypt, never plain text
+    role = Column(String, nullable=False)            # see app/auth/permissions.py
+    is_active = Column(Boolean, default=True, nullable=False)
+    must_change_password = Column(Boolean, default=True, nullable=False)
+    failed_login_count = Column(Integer, default=0, nullable=False)
+    locked_at = Column(DateTime)                     # set after too many failures
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login_at = Column(DateTime)
+
+
+class Scan(Base):
+    """One screening session: the JD and every resume screened
+    against it (re-runs after adding resumes update the same scan)."""
+
+    __tablename__ = "scans"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    jd_text = Column(Text, nullable=False)
+    resume_count = Column(Integer, default=0)
+    shortlisted_count = Column(Integer, default=0)
+    weights = Column(JSON)                           # criteria weights + signals
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ScanResult(Base):
+    """One candidate's extracted result in a scan - no resume file
+    or full resume text is stored."""
+
+    __tablename__ = "scan_results"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False, index=True)
+    rank = Column(Integer)                           # display order in the scan
     candidate_name = Column(String)
-
-    agent_name = Column(String)
-
-    status = Column(String)
-
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
-    )
-
     email = Column(String)
+    phone = Column(String)
+    score = Column(Float)
+    decision = Column(String)
+    shortlisted = Column(Boolean, default=False)
+    result = Column(JSON)                            # evaluation + parsed profile
 
-    interview_invite_sent = Column(
-        Boolean,
-        default=False
-    )
-
-    interview_invite_date = Column(DateTime)
-
-# ---------------------------------------------------
-# Agent Logs Table
-# ---------------------------------------------------
 
 class AgentLog(Base):
 
     __tablename__ = "agent_logs"
 
     id = Column(Integer, primary_key=True)
-
+    org_id = Column(Integer, index=True)             # empty for pre-login events
+    user_id = Column(Integer)
     session_id = Column(String)
-
     agent_name = Column(String)
-
     event_type = Column(String)
-
     data = Column(JSON)
-
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
-    )
+    created_at = Column(DateTime, default=datetime.utcnow)
