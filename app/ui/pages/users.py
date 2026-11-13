@@ -1,9 +1,11 @@
 import streamlit as st
 
 from app.auth.permissions import MANAGEABLE_ROLES, ROLE_LABELS, has_permission
-from app.services import auth_service
+from app.llm_config import label_of, provider_of
+from app.services import auth_service, llm_settings_service
 from app.services.auth_service import AuthError
 from app.ui.auth_ui import require, show_temp_password
+from app.ui.llm_ui import render_org_keys
 
 user = require("manage_users")
 manages_orgs = has_permission(user, "manage_orgs")
@@ -115,3 +117,17 @@ if manageable:
                 auth_service.reset_password(user, target["id"]))
     except AuthError as e:
         st.error(str(e))
+
+# ---------------------------------------------------
+# OWN ORG'S AI KEY (HR Manager - the Superadmin sets
+# every org's keys on the Settings page)
+# ---------------------------------------------------
+
+if not manages_orgs and has_permission(user, "manage_org_keys"):
+    st.divider()
+    st.subheader(f"🔑 AI key for {user.org_name}")
+    models = [m for m in llm_settings_service.models_for_org(user.org_id) if m]
+    st.caption(
+        "Your team's scans use " + " → ".join(label_of(m) for m in models)
+        + ". Keys are stored encrypted and never shown again after saving.")
+    render_org_keys(user, user.org_id, [provider_of(m) for m in models])

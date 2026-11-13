@@ -1,5 +1,5 @@
 streamlit
-anthropic>=2,<3
+litellm==1.109.1
 python-dotenv
 PyPDF2
 python-docx
@@ -7,3 +7,4 @@ pydantic
 sqlalchemy<2.1
 psycopg2-binary
 bcrypt
+cryptography

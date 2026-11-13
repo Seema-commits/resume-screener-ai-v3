@@ -1,4 +1,4 @@
-from app.services.ai_service import call_ai
+from app.services.llm_client import call_ai
 from app.prompts.enhancement_prompts import ENHANCEMENT_PROMPT
 
 

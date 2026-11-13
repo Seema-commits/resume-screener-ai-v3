@@ -9,53 +9,17 @@ test wipes it), otherwise a temporary SQLite file.
 """
 
 import os
-import tempfile
-
-os.environ.setdefault(
-    "DATABASE_URL",
-    "sqlite:///" + os.path.join(tempfile.mkdtemp(), "test.db"))
 
 import pytest
 
+from conftest import PASSWORD, make_world
 from app.auth.permissions import (
     ACTIONS, HR_EXECUTIVE, HR_MANAGER, SUPERADMIN, can_manage, has_permission)
-from app.database.db import Base, SessionLocal, engine
+from app.database.db import SessionLocal
 from app.database.init_db import init_db
 from app.database.models import AgentLog, User
 from app.services import auth_service, scan_service
-from app.services.auth_service import AuthError, LOCKED
-
-PASSWORD = "correct-horse-battery"
-
-
-@pytest.fixture(autouse=True)
-def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)          # log files go to a temp folder
-    Base.metadata.drop_all(bind=engine)
-    assert init_db()
-
-
-def make_world():
-    """Superadmin; org A with a manager and two executives; org B
-    with one executive. Returns logged-in CurrentUsers."""
-
-    auth_service.create_superadmin("Admin", "admin@x.com", PASSWORD, False)
-    admin = auth_service.authenticate("admin@x.com", PASSWORD)
-    auth_service.create_org(admin, "Org A")
-    auth_service.create_org(admin, "Org B")
-    org = {o["name"]: o["id"] for o in auth_service.list_orgs(admin)}
-
-    def add(actor, org_id, email, role):
-        temp = auth_service.create_user(actor, org_id, email, email, role)
-        user = auth_service.authenticate(email, temp)
-        auth_service.change_password(user.id, temp, PASSWORD)
-        return auth_service.authenticate(email, PASSWORD)
-
-    manager = add(admin, org["Org A"], "mgr@a.com", HR_MANAGER)
-    exec_a1 = add(manager, org["Org A"], "e1@a.com", HR_EXECUTIVE)
-    exec_a2 = add(manager, org["Org A"], "e2@a.com", HR_EXECUTIVE)
-    exec_b = add(admin, org["Org B"], "e@b.com", HR_EXECUTIVE)
-    return admin, manager, exec_a1, exec_a2, exec_b, org
+from app.services.auth_service import AuthError
 
 
 def fake_result(name):
@@ -78,7 +42,8 @@ def test_role_permissions():
 
     assert all(has_permission(admin, a) for a in ACTIONS)
     assert {a for a in ACTIONS if has_permission(manager, a)} == {
-        "run_scan", "view_own_scans", "view_team_scans", "manage_users"}
+        "run_scan", "view_own_scans", "view_team_scans", "manage_users",
+        "manage_org_keys"}
     assert {a for a in ACTIONS if has_permission(exec_a1, a)} == {
         "run_scan", "view_own_scans"}
     assert not has_permission(None, "run_scan")

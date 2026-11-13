@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 
-from app.services.ai_service import call_ai
+from app.services.llm_client import call_ai
 from app.prompts.screening_prompts import SCREENING_PROMPT
 from app.prompts.parsing_prompts import PARSE_PROMPT
 from app.utils.json_parser import extract_json
@@ -79,7 +79,7 @@ class ScreeningAgent:
     # profiles than it was sent and they can't be matched.
     # -----------------------------------------------
 
-    def parse_resumes(self, session_id, chunks, api_key=None):
+    def parse_resumes(self, session_id, chunks):
 
         if not chunks:
             return []
@@ -118,8 +118,7 @@ class ScreeningAgent:
                 response = call_ai(
                     batch_text,
                     system_prompt=PARSE_PROMPT,
-                    max_tokens=PARSE_MAX_TOKENS_PER_BATCH,
-                    api_key=api_key
+                    max_tokens=PARSE_MAX_TOKENS_PER_BATCH
                 )
 
                 last_response = response
@@ -235,8 +234,7 @@ class ScreeningAgent:
         job_description,
         profiles_batch,
         deterministic_flags,
-        criteria_weights,
-        api_key=None
+        criteria_weights
     ):
 
         profiles_json = json.dumps(
@@ -283,8 +281,7 @@ class ScreeningAgent:
             response = call_ai(
                 prompt,
                 system_prompt=SCREENING_PROMPT,
-                max_tokens=SCORING_MAX_TOKENS_PER_BATCH,
-                api_key=api_key
+                max_tokens=SCORING_MAX_TOKENS_PER_BATCH
             )
 
             last_response = response
@@ -378,7 +375,6 @@ class ScreeningAgent:
         candidate_text,
         top_n,
         score_threshold,
-        api_key=None,
         cache=None
     ):
 
@@ -423,8 +419,7 @@ class ScreeningAgent:
 
             parsed = self.parse_resumes(
                 session_id,
-                [chunk for _, chunk in new_resumes],
-                api_key=api_key
+                [chunk for _, chunk in new_resumes]
             )
 
         except Exception as e:
@@ -529,8 +524,7 @@ class ScreeningAgent:
                     job_description,
                     [profile for _, profile in batch],
                     deterministic_flags,
-                    criteria_weights,
-                    api_key=api_key
+                    criteria_weights
                 )
 
                 key_by_name = {

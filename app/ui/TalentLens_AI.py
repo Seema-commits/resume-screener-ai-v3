@@ -48,12 +48,13 @@ if not st.session_state.db_ready:
 
 user = load_current_user()
 
-if user is None:
-    login_form()
-    st.stop()
-
-if user.must_change_password:
-    change_password_form(user)
+if user is None or user.must_change_password:
+    # A one-page, hidden menu: otherwise Streamlit keeps showing the
+    # previous user's menu after sign-out.
+    screen = (login_form if user is None
+              else lambda: change_password_form(user))
+    st.navigation([st.Page(screen, title="Sign in", url_path="sign-in")],
+                  position="hidden").run()
     st.stop()
 
 # (page file, title, icon, action required to see it)
@@ -61,7 +62,7 @@ PAGES = [
     ("pages/screening.py", "Screen Resumes", "🎯", "run_scan"),
     ("pages/scan_history.py", "Scan History", "🗂️", "view_own_scans"),
     ("pages/users.py", "Users", "👥", "manage_users"),
-    ("pages/settings.py", "Settings", "🔑", "view_settings"),
+    ("pages/settings.py", "AI Settings", "🤖", "choose_llm_models"),
     ("pages/logs.py", "Logs", "🪵", "view_logs"),
 ]
 

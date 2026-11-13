@@ -1,0 +1,121 @@
+"""
+The only place the app calls an LLM, through LiteLLM. Every agent
+uses call_ai(); no other file imports litellm or names a provider
+(model choices live in app/llm_config.py).
+
+For each call:
+1. contact details are masked (a safety net - the screening agent
+   has already masked names, emails and phones),
+2. the org's model is tried with the org's own key, then its
+   fallback model if the first fails (rate limit, outage, bad key,
+   unknown model...),
+3. an "llm_call" log entry records which provider/model answered,
+   tokens and time - never the prompt or the key.
+"""
+
+import time
+
+import litellm
+
+from app.llm_config import PROVIDER_PARAMS, provider_of
+from app.services import llm_settings_service
+from app.services.logging_service import log_event
+from app.utils.pii_masking import mask_contact_details
+
+litellm.drop_params = True          # skip settings a model doesn't support
+litellm.suppress_debug_info = True
+
+# ---------------------------------------------------
+# Tracing hook (Langfuse later)
+# ---------------------------------------------------
+# To trace every LLM call in Langfuse: add LANGFUSE_PUBLIC_KEY,
+# LANGFUSE_SECRET_KEY and LANGFUSE_HOST to the secrets and set
+# TRACING_CALLBACKS = ["langfuse"]. Prompts reaching LiteLLM are
+# already masked.
+TRACING_CALLBACKS = []
+litellm.success_callback = list(TRACING_CALLBACKS)
+litellm.failure_callback = list(TRACING_CALLBACKS)
+
+RETRIES_PER_MODEL = 2               # transient errors, before falling back
+
+
+def _current_org_id():
+    try:
+        import streamlit as st
+        user = st.session_state.get("current_user")
+        return user.org_id if user else None
+    except Exception:
+        return None
+
+
+def _log(org_id, **data):
+    log_event(session_id="llm", agent_name="llm_client",
+              event_type="llm_call", data={"org_id": org_id, **data})
+
+
+def call_ai(user_message, system_prompt=None, max_tokens=4000, org_id=None,
+            only_model=None):
+    """
+    Sends one prompt and returns the model's text answer. Uses the
+    logged-in user's org unless org_id is given. only_model tries just
+    that model (the Settings page's "Test model"). Raises RuntimeError
+    with a message safe to show if no configured model can answer.
+    """
+
+    org_id = org_id or _current_org_id()
+    if org_id is None:
+        raise RuntimeError("No organization - sign in first.")
+
+    messages = ([{"role": "system", "content": system_prompt}]
+                if system_prompt else [])
+    messages.append(
+        {"role": "user", "content": mask_contact_details(user_message)})
+
+    primary, fallback = (
+        (only_model, None) if only_model
+        else llm_settings_service.models_for_org(org_id))
+    failures = []
+
+    for model in dict.fromkeys(m for m in (primary, fallback) if m):
+
+        provider = provider_of(model)
+        attempt = {"model": model, "provider": provider,
+                   "fallback_used": model != primary}
+
+        api_key = llm_settings_service.get_api_key(org_id, provider)
+        if not api_key:
+            failures.append(f"{model}: no {provider} key for this organization")
+            _log(org_id, **attempt, ok=False, error="no_api_key")
+            continue
+
+        started = time.monotonic()
+        try:
+            response = litellm.completion(
+                model=model, messages=messages, max_tokens=max_tokens,
+                api_key=api_key, num_retries=RETRIES_PER_MODEL,
+                **PROVIDER_PARAMS.get(provider, {}))
+        except Exception as e:
+            # Error type only: provider messages can echo key fragments
+            failures.append(f"{model}: {type(e).__name__}")
+            _log(org_id, **attempt, ok=False, error=type(e).__name__,
+                 ms=round((time.monotonic() - started) * 1000))
+            continue
+
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        usage = getattr(response, "usage", None)
+        _log(org_id, **attempt, ok=True,
+             input_tokens=getattr(usage, "prompt_tokens", None),
+             output_tokens=getattr(usage, "completion_tokens", None),
+             ms=round((time.monotonic() - started) * 1000))
+
+        if choice.finish_reason in ("content_filter", "refusal"):
+            raise RuntimeError("The AI declined this request.")
+        if not text and choice.finish_reason == "length":
+            raise RuntimeError(
+                "The AI used the whole max_tokens budget before answering "
+                "- raise max_tokens for this call.")
+
+        return text
+
+    raise RuntimeError("No AI model could answer. " + "; ".join(failures))
