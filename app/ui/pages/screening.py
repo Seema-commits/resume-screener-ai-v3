@@ -50,10 +50,6 @@ if "screening_jd" not in st.session_state:
 if "uploader_version" not in st.session_state:
     st.session_state.uploader_version = 0
 
-if "user_api_key" not in st.session_state:
-    # Session-only, never written to disk/DB - see Settings page.
-    st.session_state.user_api_key = ""
-
 if "current_scan_id" not in st.session_state:
     # The saved scan this screening session updates on each run
     st.session_state.current_scan_id = None
@@ -287,10 +283,6 @@ if agent_mode == "Resume Screening":
                             "candidate_text": candidate_text,
                             "top_n": top_n,
                             "score_threshold": score_threshold,
-                            "api_key": (
-                                st.session_state.user_api_key
-                                or None
-                            ),
                             "cache": st.session_state.screening_cache
                         }
                     )

@@ -1,4 +1,4 @@
-from app.services.ai_service import call_ai
+from app.services.llm_client import call_ai
 from app.prompts.scheduler_prompts import SCHEDULER_PROMPT
 
 

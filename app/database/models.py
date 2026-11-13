@@ -9,7 +9,8 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
-    Text
+    Text,
+    UniqueConstraint
 )
 
 from app.database.db import Base
@@ -82,6 +83,37 @@ class ScanResult(Base):
     decision = Column(String)
     shortlisted = Column(Boolean, default=False)
     result = Column(JSON)                            # evaluation + parsed profile
+
+
+class OrgLlmSetting(Base):
+    """An org's chosen models (LiteLLM names). Orgs without a row use
+    the defaults in app/llm_config.py. Never holds keys."""
+
+    __tablename__ = "org_llm_settings"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True)
+    model = Column(String, nullable=False)
+    fallback_model = Column(String)
+    updated_by = Column(Integer, ForeignKey("users.id"))
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class OrgApiKey(Base):
+    """An org's own key for one AI provider, encrypted (see
+    services/org_keys_service.py). Write-only: only the last 4
+    characters are ever shown."""
+
+    __tablename__ = "org_api_keys"
+    __table_args__ = (UniqueConstraint("org_id", "provider"),)
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False)
+    encrypted_key = Column(Text, nullable=False)
+    last4 = Column(String)
+    updated_by = Column(Integer, ForeignKey("users.id"))
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class AgentLog(Base):

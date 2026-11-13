@@ -26,6 +26,16 @@ def _mask_phone(match):
     return "[PHONE]" if 9 <= digits <= 15 else match.group()
 
 
+def mask_contact_details(text):
+    """Masks emails, phone numbers and LinkedIn/GitHub links. Also
+    applied by services/llm_client.py to everything sent to an LLM,
+    as a safety net for callers that don't mask."""
+
+    text = PROFILE_URL_RE.sub("[PROFILE_URL]", text)
+    text = EMAIL_RE.sub("[EMAIL]", text)
+    return PHONE_RE.sub(_mask_phone, text)
+
+
 def _candidate_name(header, body):
     """The resume's own name line if it looks like one, else the
     name parser_service derived from the file name."""
@@ -66,9 +76,7 @@ def mask_resume(chunk, token):
     }
     name = contact["name"]
 
-    body = PROFILE_URL_RE.sub("[PROFILE_URL]", body)
-    body = EMAIL_RE.sub("[EMAIL]", body)
-    body = PHONE_RE.sub(_mask_phone, body)
+    body = mask_contact_details(body)
 
     # Full name first, then each part ("Aisha", "Rahman") on its own
     for part in [name] + sorted(name.split(), key=len, reverse=True):

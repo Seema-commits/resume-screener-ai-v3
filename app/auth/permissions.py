@@ -21,13 +21,15 @@ ACTIONS = {
     "view_all_scans",   # every scan in every org
     "manage_users",     # open the Users page (what exactly: can_manage)
     "manage_orgs",      # create organizations
-    "view_settings",
     "view_logs",
+    "choose_llm_models",  # which model each org uses
+    "manage_org_keys",    # an org's own AI provider keys (where: can_manage_org)
 }
 
 ROLE_PERMISSIONS = {
     SUPERADMIN: ACTIONS,
-    HR_MANAGER: {"run_scan", "view_own_scans", "view_team_scans", "manage_users"},
+    HR_MANAGER: {"run_scan", "view_own_scans", "view_team_scans", "manage_users",
+                 "manage_org_keys"},
     HR_EXECUTIVE: {"run_scan", "view_own_scans"},
 }
 
@@ -70,3 +72,14 @@ def can_manage(actor, target_role, target_org_id, target_user_id=None):
         return True
 
     return target_org_id == actor.org_id
+
+
+def can_manage_org(actor, action, org_id):
+    """True if `actor` may do an org-level `action` (such as
+    manage_org_keys) for this org: any org for the Superadmin, only
+    her own org for an HR Manager."""
+
+    if not has_permission(actor, action):
+        return False
+
+    return actor.role == SUPERADMIN or org_id == actor.org_id

@@ -1,64 +1,75 @@
 import streamlit as st
 
+from app.llm_config import (
+    DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, FREE_TIER_PROVIDERS,
+    FREE_TIER_WARNING, MODELS, label_of, provider_of)
+from app.services import auth_service, llm_settings_service
+from app.services.auth_service import AuthError
+from app.services.llm_client import call_ai
 from app.ui.auth_ui import require
+from app.ui.llm_ui import render_org_keys
 
-require("view_settings")
+user = require("choose_llm_models")
 
-st.title("🔑 API Key Settings")
+st.title("🤖 AI Model Settings")
+st.caption(
+    f"Organizations without their own choice use "
+    f"**{label_of(DEFAULT_MODEL)}**, falling back to "
+    f"**{label_of(DEFAULT_FALLBACK_MODEL)}** (from config). API keys are "
+    f"never shown here - only whether one is set.")
 
-if "user_api_key" not in st.session_state:
-    st.session_state.user_api_key = ""
+orgs = auth_service.list_orgs(user)
+org = st.selectbox("Organization", orgs, format_func=lambda o: o["name"])
+model, fallback = llm_settings_service.models_for_org(org["id"])
 
-st.markdown(
-    """
-    By default, this app uses a pre-configured Anthropic API key.
-    If you'd rather use your own key for this session, you can add
-    it below.
+CUSTOM = "Custom LiteLLM model…"
 
-    **Your key is never saved to a file or database.** It lives only
-    in this browser session's memory and disappears the moment you
-    close this tab or the app restarts. It is not visible to anyone
-    else using this app, including the person who built it.
-    """
-)
+
+def pick_model(label, current, key, allow_none=False):
+    """Built-in models, plus any LiteLLM model typed in."""
+
+    options = ([None] if allow_none else []) + list(MODELS) + [CUSTOM]
+    index = options.index(current) if current in options else options.index(CUSTOM)
+    choice = st.selectbox(
+        label, options, index=index, key=key,
+        format_func=lambda m: "None" if m is None else MODELS.get(m, m))
+
+    if choice == CUSTOM:
+        return st.text_input(
+            f"{label} - LiteLLM name", key=f"{key}_custom",
+            value=current if current not in MODELS else "",
+            placeholder="e.g. groq/llama-3.3-70b-versatile")
+    return choice
+
+
+col1, col2 = st.columns(2)
+with col1:
+    new_model = pick_model("Model", model, f"model_{org['id']}")
+with col2:
+    new_fallback = pick_model("Fallback model", fallback,
+                              f"fallback_{org['id']}", allow_none=True)
+
+chosen = [m for m in (new_model, new_fallback) if m]
+if any(provider_of(m) in FREE_TIER_PROVIDERS for m in chosen):
+    st.warning(f"⚠️ {FREE_TIER_WARNING}")
+
+save_col, test_col, _ = st.columns([1, 1, 3])
+if save_col.button("💾 Save models", type="primary"):
+    try:
+        llm_settings_service.set_models(user, org["id"], new_model, new_fallback)
+        st.success("Saved.")
+    except AuthError as e:
+        st.error(str(e))
+
+if test_col.button("🧪 Test models"):
+    for m in chosen:
+        try:
+            answer = call_ai("Reply with the single word OK.", org_id=org["id"],
+                             max_tokens=2000, only_model=m)
+            st.success(f"{label_of(m)}: answered “{answer.strip()[:40]}”")
+        except RuntimeError as e:
+            st.error(f"{label_of(m)}: {e}")
 
 st.divider()
-
-if st.session_state.user_api_key:
-
-    # -----------------------------------
-    # A custom key is active - show status
-    # only, no input field, one button.
-    # -----------------------------------
-
-    st.success("✅ Using your own API key for this session.")
-
-    if st.button("🗑️ Clear key (use default instead)"):
-
-        st.session_state.user_api_key = ""
-        st.rerun()
-
-else:
-
-    # -----------------------------------
-    # Default key in use - show input
-    # field, one button.
-    # -----------------------------------
-
-    st.info("ℹ️ Currently using the app's default API key.")
-
-    entered_key = st.text_input(
-        "Your Anthropic API Key",
-        type="password",
-        label_visibility="visible"
-    )
-
-    if st.button("💾 Save key"):
-
-        cleaned_key = entered_key.strip()
-
-        if cleaned_key:
-            st.session_state.user_api_key = cleaned_key
-            st.rerun()
-        else:
-            st.warning("Enter a key first, or leave this page to keep using the default.")
+st.subheader(f"🔑 AI keys for {org['name']}")
+render_org_keys(user, org["id"], [provider_of(m) for m in chosen])
