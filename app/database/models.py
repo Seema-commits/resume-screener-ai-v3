@@ -125,6 +125,6 @@ class AgentLog(Base):
     user_id = Column(Integer)
     session_id = Column(String)
     agent_name = Column(String)
-    event_type = Column(String)
+    event_type = Column(String, index=True)
     data = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

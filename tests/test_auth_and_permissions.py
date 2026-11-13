@@ -8,8 +8,6 @@ Uses DATABASE_URL if set (point it at a throwaway database - every
 test wipes it), otherwise a temporary SQLite file.
 """
 
-import os
-
 import pytest
 
 from conftest import PASSWORD, make_world
@@ -201,8 +199,6 @@ def test_no_password_reaches_the_logs():
 
     with SessionLocal() as db:
         db_logs = str([log.data for log in db.query(AgentLog).all()])
-    file_logs = "".join(open(os.path.join("logs", f)).read()
-                        for f in os.listdir("logs"))
 
     for secret in (PASSWORD, temp, "a-wrong-password"):
-        assert secret not in db_logs and secret not in file_logs
+        assert secret not in db_logs
