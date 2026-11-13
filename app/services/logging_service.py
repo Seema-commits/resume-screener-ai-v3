@@ -9,6 +9,21 @@ from app.database.models import AgentLog
 LOG_FOLDER = "logs"
 
 
+def _current_ids():
+    """(org_id, user_id) of the logged-in user, if any, so every
+    log entry can be scoped by org like the other tables."""
+
+    try:
+        import streamlit as st
+        user = st.session_state.get("current_user")
+        if user is not None:
+            return user.org_id, user.id
+    except Exception:
+        pass
+
+    return None, None
+
+
 def ensure_log_folder():
 
     if not os.path.exists(LOG_FOLDER):
@@ -24,9 +39,12 @@ def log_event(
 ):
 
     timestamp = datetime.utcnow().isoformat()
+    org_id, user_id = _current_ids()
 
     log_entry = {
         "timestamp": timestamp,
+        "org_id": org_id,
+        "user_id": user_id,
         "session_id": session_id,
         "agent_name": agent_name,
         "event_type": event_type,
@@ -70,6 +88,8 @@ def log_event(
         db = SessionLocal()
 
         entry = AgentLog(
+            org_id=org_id,
+            user_id=user_id,
             session_id=session_id,
             agent_name=agent_name,
             event_type=event_type,

@@ -1,29 +1,9 @@
-import os
 import anthropic
-from dotenv import load_dotenv
 
-load_dotenv()
-
-
-def _get_default_api_key():
-    """
-    Default key, in priority order:
-    1. Streamlit secrets (used when deployed - set via the
-       platform's Secrets UI, never committed to the repo)
-    2. .env / environment variable (local development)
-    """
-
-    try:
-        import streamlit as st
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return st.secrets["ANTHROPIC_API_KEY"]
-    except Exception:
-        pass
-
-    return os.getenv("ANTHROPIC_API_KEY")
+from app.config import get_secret
 
 
-DEFAULT_API_KEY = _get_default_api_key()
+DEFAULT_API_KEY = get_secret("ANTHROPIC_API_KEY")
 
 _client_cache = {}
 

@@ -1,10 +1,8 @@
 import streamlit as st
 
-st.set_page_config(
-    page_title="Settings",
-    page_icon="🔑",
-    layout="wide"
-)
+from app.ui.auth_ui import require
+
+require("view_settings")
 
 st.title("🔑 API Key Settings")
 

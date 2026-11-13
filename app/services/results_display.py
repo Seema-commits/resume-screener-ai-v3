@@ -310,7 +310,7 @@ def render_full_results(result_to_render, show_downloads=False):
     Renders the complete screening-results view: counts,
     (optionally) download buttons, the scoring-weights box, the
     Shortlisted/Rejected tables, and per-candidate detail
-    expanders. Used identically by the main page and Dashboard.
+    expanders. Used identically by the main page and Scan History.
     """
 
     if not result_to_render or "shortlisted_candidates" not in result_to_render:
