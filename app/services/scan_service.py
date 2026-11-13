@@ -79,33 +79,44 @@ def save_scan(user, scan_id, jd_text, result):
         return scan.id
 
 
-def list_scans(viewer, org_id=None, user_id=None, date_from=None,
-               date_to=None, jd_query=None, limit=200):
-    """Scans the viewer may see, newest first. Filters only narrow
-    the viewer's scope - they can never widen it."""
+def _filtered(db, viewer, org_id=None, user_id=None, date_from=None,
+              date_to=None, jd_query=None):
+    """Scans the viewer may see, narrowed by the filters. Filters
+    only narrow the viewer's scope - they can never widen it."""
+
+    query = _scoped(
+        db.query(Scan, User.name, Organization.name)
+        .join(User, Scan.user_id == User.id)
+        .join(Organization, Scan.org_id == Organization.id),
+        viewer,
+    )
+
+    if org_id:
+        query = query.filter(Scan.org_id == org_id)
+    if user_id:
+        query = query.filter(Scan.user_id == user_id)
+    if date_from:
+        query = query.filter(
+            Scan.created_at >= datetime.combine(date_from, time.min))
+    if date_to:
+        query = query.filter(
+            Scan.created_at <= datetime.combine(date_to, time.max))
+    if jd_query:
+        query = query.filter(Scan.jd_text.ilike(f"%{jd_query}%"))
+
+    return query
+
+
+def count_scans(viewer, **filters):
+    with SessionLocal() as db:
+        return _filtered(db, viewer, **filters).count()
+
+
+def list_scans(viewer, offset=0, limit=25, **filters):
+    """One page of scans the viewer may see, newest first. Filters:
+    org_id, user_id, date_from, date_to, jd_query."""
 
     with SessionLocal() as db:
-
-        query = _scoped(
-            db.query(Scan, User.name, Organization.name)
-            .join(User, Scan.user_id == User.id)
-            .join(Organization, Scan.org_id == Organization.id),
-            viewer,
-        )
-
-        if org_id:
-            query = query.filter(Scan.org_id == org_id)
-        if user_id:
-            query = query.filter(Scan.user_id == user_id)
-        if date_from:
-            query = query.filter(
-                Scan.created_at >= datetime.combine(date_from, time.min))
-        if date_to:
-            query = query.filter(
-                Scan.created_at <= datetime.combine(date_to, time.max))
-        if jd_query:
-            query = query.filter(Scan.jd_text.ilike(f"%{jd_query}%"))
-
         return [{
             "id": scan.id,
             "created_at": scan.created_at,
@@ -115,7 +126,9 @@ def list_scans(viewer, org_id=None, user_id=None, date_from=None,
             "resume_count": scan.resume_count,
             "shortlisted_count": scan.shortlisted_count,
         } for scan, run_by, org in
-            query.order_by(Scan.created_at.desc()).limit(limit).all()]
+            _filtered(db, viewer, **filters)
+            .order_by(Scan.created_at.desc(), Scan.id.desc())
+            .offset(offset).limit(limit).all()]
 
 
 def load_scan(viewer, scan_id):

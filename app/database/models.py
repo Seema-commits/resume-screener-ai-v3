@@ -101,7 +101,7 @@ class OrgLlmSetting(Base):
 
 class OrgApiKey(Base):
     """An org's own key for one AI provider, encrypted (see
-    services/org_keys_service.py). Write-only: only the last 4
+    services/llm_settings_service.py). Write-only: only the last 4
     characters are ever shown."""
 
     __tablename__ = "org_api_keys"
@@ -125,6 +125,6 @@ class AgentLog(Base):
     user_id = Column(Integer)
     session_id = Column(String)
     agent_name = Column(String)
-    event_type = Column(String)
+    event_type = Column(String, index=True)
     data = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

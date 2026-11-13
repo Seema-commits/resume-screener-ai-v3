@@ -4,6 +4,7 @@ from app.auth.permissions import has_permission
 from app.services import auth_service, scan_service
 from app.services.results_display import render_full_results
 from app.ui.auth_ui import require
+from app.ui.pagination import PAGE_SIZE, paginate
 
 user = require("view_own_scans")
 
@@ -47,13 +48,16 @@ jd_query = next(col).text_input("JD contains")
 date_from = dates[0] if len(dates) > 0 else None
 date_to = dates[1] if len(dates) > 1 else date_from
 
-scans = scan_service.list_scans(
-    user, org_id=org_id, user_id=user_id, date_from=date_from,
-    date_to=date_to, jd_query=jd_query.strip() or None)
+filters = {"org_id": org_id, "user_id": user_id, "date_from": date_from,
+           "date_to": date_to, "jd_query": jd_query.strip() or None}
 
-if not scans:
+total = scan_service.count_scans(user, **filters)
+if not total:
     st.info("No scans found.")
     st.stop()
+
+offset = paginate(total, "scans", filters)
+scans = scan_service.list_scans(user, offset=offset, limit=PAGE_SIZE, **filters)
 
 # ---------------------------------------------------
 # SCAN LIST - select a row to open it

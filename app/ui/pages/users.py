@@ -6,6 +6,7 @@ from app.services import auth_service, llm_settings_service
 from app.services.auth_service import AuthError
 from app.ui.auth_ui import require, show_temp_password
 from app.ui.llm_ui import render_org_keys
+from app.ui.pagination import PAGE_SIZE, paginate
 
 user = require("manage_users")
 manages_orgs = has_permission(user, "manage_orgs")
@@ -23,10 +24,11 @@ orgs = auth_service.list_orgs(user)
 
 if manages_orgs:
     st.subheader("Organizations")
+    org_offset = paginate(len(orgs), "orgs")
     st.dataframe(
         [{"Organization": o["name"],
           "Status": "Active" if o["is_active"] else "Inactive"}
-         for o in orgs],
+         for o in orgs[org_offset:org_offset + PAGE_SIZE]],
         hide_index=True, use_container_width=True)
 
     with st.form("create_org", clear_on_submit=True):
@@ -78,7 +80,12 @@ st.divider()
 
 st.subheader("All users" if manages_orgs else f"Team in {user.org_name}")
 
-users = auth_service.list_users(user)
+# Users and orgs are short lists (people, not events), so they're
+# loaded once and paged here rather than in SQL.
+search = st.text_input("Search by name or email").strip().lower()
+users = [u for u in auth_service.list_users(user)
+         if search in f"{u['name']} {u['email']}".lower()]
+user_offset = paginate(len(users), "users", search)
 
 st.dataframe([{
     "Name": u["name"],
@@ -89,7 +96,8 @@ st.dataframe([{
     "Created by": u["created_by"],
     "Last login (UTC)": (u["last_login_at"].strftime("%Y-%m-%d %H:%M")
                          if u["last_login_at"] else ""),
-} for u in users], hide_index=True, use_container_width=True)
+} for u in users[user_offset:user_offset + PAGE_SIZE]],
+    hide_index=True, use_container_width=True)
 
 manageable = [u for u in users if u["manageable"]]
 

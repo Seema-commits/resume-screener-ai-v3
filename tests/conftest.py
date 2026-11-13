@@ -23,7 +23,7 @@ PASSWORD = "correct-horse-battery"
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)          # log files go to a temp folder
+    monkeypatch.chdir(tmp_path)          # nothing written to the repo
     Base.metadata.drop_all(bind=engine)
     assert init_db()
 

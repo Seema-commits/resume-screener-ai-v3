@@ -1,5 +1,5 @@
 from app.database.db import Base, engine
-import app.database.models  # noqa: F401 - registers the tables on Base
+from app.database.models import AgentLog
 
 
 def init_db():
@@ -20,8 +20,15 @@ def init_db():
     try:
         Base.metadata.create_all(bind=engine)
 
+        # create_all doesn't add indexes to a table that already
+        # exists, so add any new agent_logs indexes here
+        for index in AgentLog.__table__.indexes:
+            index.create(bind=engine, checkfirst=True)
+
         from app.services.auth_service import bootstrap_superadmin
+        from app.services.logging_service import purge_old_logs
         bootstrap_superadmin()
+        purge_old_logs()            # at most once a day
 
         return True
 

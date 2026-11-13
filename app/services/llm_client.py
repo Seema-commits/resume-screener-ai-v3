@@ -48,6 +48,13 @@ def _current_org_id():
         return None
 
 
+def current_models(org_id=None):
+    """(model, fallback_model) call_ai() would use now for this org
+    (default: the logged-in user's)."""
+
+    return llm_settings_service.models_for_org(org_id or _current_org_id())
+
+
 def _log(org_id, **data):
     log_event(session_id="llm", agent_name="llm_client",
               event_type="llm_call", data={"org_id": org_id, **data})
