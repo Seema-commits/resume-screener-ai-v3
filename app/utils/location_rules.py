@@ -37,16 +37,40 @@ CITY_TO_COUNTRY = {
     "manama": "bahrain", "muscat": "oman", "cairo": "egypt",
     # Philippines / common outsourcing hubs
     "manila": "philippines", "karachi": "pakistan",
-    "lahore": "pakistan",
+    "lahore": "pakistan", "singapore": "singapore",
+}
+
+# Other spellings of a country, mapped to the names used above
+COUNTRY_ALIASES = {
+    "united arab emirates": "uae", "u.a.e": "uae", "u.a.e.": "uae",
+    "ksa": "saudi arabia", "kingdom of saudi arabia": "saudi arabia",
 }
 
 
 def _country_for(location_text):
-    """Look up the known country for a city, if recognized."""
+    """
+    The country for "City", "City, Country" or "Country", if
+    recognized. With an unrecognized "City, Country", the part after
+    the last comma is taken as the country.
+    """
     if not location_text:
         return None
-    key = location_text.lower().strip()
-    return CITY_TO_COUNTRY.get(key)
+
+    text = location_text.lower().strip()
+    parts = [p.strip() for p in text.split(",")]
+    known_countries = set(CITY_TO_COUNTRY.values())
+
+    for part in [text] + parts:
+        country = COUNTRY_ALIASES.get(part, part)
+        if part in CITY_TO_COUNTRY:
+            return CITY_TO_COUNTRY[part]
+        if country in known_countries:
+            return country
+
+    if len(parts) > 1:
+        return COUNTRY_ALIASES.get(parts[-1], parts[-1])
+
+    return None
 
 
 def parse_jd_location(job_description):
@@ -149,12 +173,6 @@ def check_location_mismatch(candidate_location, jd_location_info):
     # this is what stops "Sharjah" being flagged against a
     # "Dubai, UAE" JD just because the city names differ.
     jd_country = _country_for(jd_norm)
-
-    if not jd_country and "," in jd_norm:
-        # JD location text is often "City, Country" (e.g.
-        # "Dubai, UAE") - try the part after the last comma.
-        jd_country = jd_norm.split(",")[-1].strip()
-
     candidate_country = _country_for(candidate_norm)
 
     def _display_country(country):

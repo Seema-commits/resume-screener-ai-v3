@@ -10,6 +10,7 @@ from app.utils.date_utils import run_integrity_checks
 from app.utils.weight_rules import derive_criteria_weights
 from app.utils.decision_rules import decide
 from app.utils.pii_masking import mask_resume, unmask
+from app.utils.injection_guard import detect_injection, wrap_as_data
 from app.utils.location_rules import (
     parse_jd_location,
     check_location_mismatch
@@ -17,6 +18,7 @@ from app.utils.location_rules import (
 from app.models.screening_models import (
     CandidateEvaluation,
     CandidateScoringResponse,
+    Flag,
     ParsedProfile,
     ParsedProfilesResponse
 )
@@ -87,7 +89,9 @@ class ScreeningAgent:
         for i in range(0, len(chunks), BATCH_SIZE):
 
             batch_chunks = chunks[i:i + BATCH_SIZE]
-            batch_text = "\n\n".join(batch_chunks)
+            batch_text = "\n\n".join(
+                wrap_as_data(chunk) for chunk in batch_chunks
+            )
 
             # Exactly what the LLM receives (already masked) - lets
             # anyone verify on the Logs page that no name, email or
@@ -396,11 +400,13 @@ class ScreeningAgent:
         # `contacts` restores the real details in the output.
         resumes = {}
         contacts = {}
+        injection_flags = {}
         for chunk in _split_into_candidate_chunks(candidate_text):
             key = _resume_key(chunk)
             if key not in resumes:
                 token = f"CANDIDATE_{key[:6].upper()}"
                 resumes[key], contacts[token] = mask_resume(chunk, token)
+                injection_flags[token] = detect_injection(resumes[key])
 
         names = {token: c["name"] for token, c in contacts.items()}
 
@@ -463,6 +469,12 @@ class ScreeningAgent:
             profiles,
             job_description
         )
+
+        for profile in profiles:
+            if injection_flags.get(profile.candidate_name):
+                deterministic_flags.setdefault(
+                    profile.candidate_name, []
+                ).extend(injection_flags[profile.candidate_name])
 
         # Derived ONCE per run (per job description), reused
         # identically across every candidate/batch - this is what
@@ -582,12 +594,20 @@ class ScreeningAgent:
         # ---------------------------------------
 
         for candidate in all_candidates:
+
+            # Rule-based flags must reach the decision even if the
+            # LLM didn't copy them (e.g. an injected resume told it
+            # not to), so add back any that are missing.
+            present = {(f.flag_type, f.description) for f in candidate.flags}
+            candidate.flags += [
+                Flag(**f)
+                for f in deterministic_flags.get(candidate.candidate_name, [])
+                if (f["flag_type"], f["description"]) not in present
+            ]
+
             candidate.decision, candidate.decision_reason = (
                 decide(candidate)
             )
-            contact = contacts.get(candidate.candidate_name, {})
-            candidate.email = contact.get("email")
-            candidate.phone = contact.get("phone")
 
         score_threshold_100 = score_threshold * 10
 
@@ -597,7 +617,7 @@ class ScreeningAgent:
             score_threshold_100
         )
 
-        output = unmask({
+        output = {
             "shortlisted_candidates": [
                 c.model_dump() for c in shortlisted
             ],
@@ -614,10 +634,15 @@ class ScreeningAgent:
             "run_stats": {
                 "resumes": len(resumes),
                 "screened_now": len(all_candidates) - reused_count,
-                "reused": reused_count
+                "reused": reused_count,
+                "suspicious": sum(
+                    1 for token in names if injection_flags.get(token)
+                )
             }
-        }, names)
+        }
 
+        # Logged while still masked, so the Logs page never shows a
+        # real name, email or phone number.
         log_event(
             session_id=session_id,
             agent_name="ScreeningAgent",
@@ -625,4 +650,13 @@ class ScreeningAgent:
             data=output
         )
 
-        return output
+        # Real contact details and names, for the recruiter's screen
+        for candidate in (
+            output["shortlisted_candidates"]
+            + output["rejected_candidates"]
+        ):
+            contact = contacts.get(candidate["candidate_name"], {})
+            candidate["email"] = contact.get("email")
+            candidate["phone"] = contact.get("phone")
+
+        return unmask(output, names)

@@ -1,7 +1,6 @@
 streamlit
 anthropic>=2,<3
 python-dotenv
-requests
 PyPDF2
 python-docx
 pydantic
