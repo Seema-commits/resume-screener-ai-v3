@@ -202,3 +202,16 @@ def test_no_password_reaches_the_logs():
 
     for secret in (PASSWORD, temp, "a-wrong-password"):
         assert secret not in db_logs
+
+
+def test_scans_are_counted_and_paged_in_the_database():
+    admin, manager, exec_a1, exec_a2, exec_b, org = make_world()
+    ids = [scan_service.save_scan(exec_a1, None, f"JD {i}", fake_result("A"))
+           for i in range(30)]
+
+    assert scan_service.count_scans(manager) == 30
+    page1 = scan_service.list_scans(manager, offset=0, limit=25)
+    page2 = scan_service.list_scans(manager, offset=25, limit=25)
+    assert len(page1) == 25 and len(page2) == 5
+    assert {s["id"] for s in page1 + page2} == set(ids)      # no gaps/repeats
+    assert scan_service.count_scans(exec_a2) == 0             # still scoped
