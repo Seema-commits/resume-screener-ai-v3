@@ -118,7 +118,9 @@ class ScreeningAgent:
                 response = call_ai(
                     batch_text,
                     system_prompt=PARSE_PROMPT,
-                    max_tokens=PARSE_MAX_TOKENS_PER_BATCH
+                    max_tokens=PARSE_MAX_TOKENS_PER_BATCH,
+                    stage="parse",
+                    session_id=session_id
                 )
 
                 last_response = response
@@ -281,7 +283,9 @@ class ScreeningAgent:
             response = call_ai(
                 prompt,
                 system_prompt=SCREENING_PROMPT,
-                max_tokens=SCORING_MAX_TOKENS_PER_BATCH
+                max_tokens=SCORING_MAX_TOKENS_PER_BATCH,
+                stage="score",
+                session_id=session_id
             )
 
             last_response = response
