@@ -8,3 +8,4 @@ sqlalchemy<2.1
 psycopg2-binary
 bcrypt
 cryptography
+langfuse>=4.7,<5

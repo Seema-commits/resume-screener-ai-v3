@@ -5,7 +5,7 @@ from app.llm_config import (
     FREE_TIER_WARNING, MODELS, label_of, provider_of)
 from app.services import auth_service, llm_settings_service
 from app.services.auth_service import AuthError
-from app.services.llm_client import call_ai
+from app.services.llm_client import call_ai, tracing_host
 from app.ui.auth_ui import require
 from app.ui.llm_ui import render_org_keys
 
@@ -17,6 +17,11 @@ st.caption(
     f"**{label_of(DEFAULT_MODEL)}**, falling back to "
     f"**{label_of(DEFAULT_FALLBACK_MODEL)}** (from config). API keys are "
     f"never shown here - only whether one is set.")
+
+host = tracing_host()
+st.caption(f"📈 Langfuse tracing: **ON** ({host})" if host else
+           "📈 Langfuse tracing: **OFF** - add LANGFUSE_PUBLIC_KEY and "
+           "LANGFUSE_SECRET_KEY to the secrets to turn it on.")
 
 orgs = auth_service.list_orgs(user)
 org = st.selectbox("Organization", orgs, format_func=lambda o: o["name"])

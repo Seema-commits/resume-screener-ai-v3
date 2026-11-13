@@ -154,3 +154,40 @@ def test_changed_encryption_secret_fails_safely(calls, monkeypatch):
     assert llm_settings_service.get_api_key(org["Org A"], "anthropic") is None
     with pytest.raises(RuntimeError, match="no anthropic key"):
         llm_client.call_ai("hello", org_id=org["Org A"])
+
+
+def test_no_langfuse_arguments_without_langfuse_keys(calls):
+    admin, *_ = make_world()
+    llm_client.call_ai("hello", org_id=admin.org_id, stage="parse", session_id="s1")
+    sent = calls.sent[-1]
+    assert "metadata" not in sent and "langfuse_public_key" not in sent
+
+
+def test_langfuse_labels_each_call_and_keys_stay_out_of_logs(calls, monkeypatch):
+    admin, *_ = make_world()
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-very-secret")
+    monkeypatch.setattr(llm_client, "_current_user", lambda: admin)
+
+    llm_client.call_ai("hello", org_id=admin.org_id, stage="score", session_id="s1")
+
+    sent = calls.sent[-1]
+    assert sent["langfuse_secret_key"] == "sk-lf-very-secret"
+    assert sent["langfuse_host"] == "https://cloud.langfuse.com"     # default region
+    meta = sent["metadata"]
+    assert (meta["trace_name"], meta["generation_name"], meta["session_id"]) == (
+        "talentlens.score", "score", "s1")
+    assert meta["tags"] == [f"org:{admin.org_id}", "stage:score", f"user:{admin.id}"]
+    assert meta["mask_input"] is False                                # full traces
+    assert "sk-lf-very-secret" not in str(llm_logs())
+
+
+def test_langfuse_metadata_only_mode(calls, monkeypatch):
+    admin, *_ = make_world()
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-very-secret")
+    monkeypatch.setenv("LANGFUSE_TRACE_CONTENT", "false")
+
+    llm_client.call_ai("hello", org_id=admin.org_id)
+    meta = calls.sent[-1]["metadata"]
+    assert meta["mask_input"] is True and meta["mask_output"] is True
