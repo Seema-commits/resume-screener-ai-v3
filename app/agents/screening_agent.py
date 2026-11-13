@@ -64,6 +64,14 @@ def _resume_key(chunk):
     return _fingerprint(re.sub(r"^--- Candidate \d+:", "---", chunk))
 
 
+def _report(progress, stage, done, total):
+    """Tells an optional progress(stage, done, total) callback how far
+    a stage has got (the API streams this to the browser)."""
+
+    if progress is not None:
+        progress(stage, done, total)
+
+
 class ScreeningAgent:
 
     # -----------------------------------------------
@@ -79,7 +87,7 @@ class ScreeningAgent:
     # profiles than it was sent and they can't be matched.
     # -----------------------------------------------
 
-    def parse_resumes(self, session_id, chunks):
+    def parse_resumes(self, session_id, chunks, progress=None):
 
         if not chunks:
             return []
@@ -88,6 +96,7 @@ class ScreeningAgent:
 
         for i in range(0, len(chunks), BATCH_SIZE):
 
+            _report(progress, "parse", i, len(chunks))
             batch_chunks = chunks[i:i + BATCH_SIZE]
             batch_text = "\n\n".join(
                 wrap_as_data(chunk) for chunk in batch_chunks
@@ -193,6 +202,7 @@ class ScreeningAgent:
             }
         )
 
+        _report(progress, "parse", len(chunks), len(chunks))
         return all_profiles
 
     # -----------------------------------------------
@@ -381,7 +391,8 @@ class ScreeningAgent:
         candidate_text,
         top_n,
         score_threshold,
-        cache=None
+        cache=None,
+        progress=None
     ):
 
         # cache: a dict the caller keeps between runs (the UI
@@ -432,7 +443,8 @@ class ScreeningAgent:
 
             parsed = self.parse_resumes(
                 session_id,
-                [chunk for _, chunk in new_resumes]
+                [chunk for _, chunk in new_resumes],
+                progress=progress
             )
 
         except Exception as e:
@@ -528,6 +540,7 @@ class ScreeningAgent:
 
         for i in range(0, len(to_score), BATCH_SIZE):
 
+            _report(progress, "score", i, len(to_score))
             batch = to_score[i:i + BATCH_SIZE]
 
             try:
@@ -576,6 +589,8 @@ class ScreeningAgent:
                 # skip it and keep going with the rest (its
                 # resumes aren't cached, so the next run retries)
                 continue
+
+        _report(progress, "score", len(to_score), len(to_score))
 
         all_candidates = [
             CandidateEvaluation(**score_cache[score_key(key)])

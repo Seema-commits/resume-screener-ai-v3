@@ -19,6 +19,7 @@ import time
 import litellm
 
 from app.config import get_secret
+from app.context import get_current_user
 from app.llm_config import PROVIDER_PARAMS, provider_of
 from app.services import llm_settings_service
 from app.services.logging_service import log_event
@@ -86,11 +87,7 @@ RETRIES_PER_MODEL = 2               # transient errors, before falling back
 
 
 def _current_user():
-    try:
-        import streamlit as st
-        return st.session_state.get("current_user")
-    except Exception:
-        return None
+    return get_current_user()
 
 
 def _current_org_id():

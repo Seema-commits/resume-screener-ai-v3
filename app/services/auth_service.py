@@ -7,9 +7,10 @@ password, which is returned once so the UI can show it once. Every
 management action is checked with app/auth/permissions.py.
 """
 
+import hashlib
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import bcrypt
 
@@ -20,7 +21,7 @@ from app.auth.permissions import (
 )
 from app.config import get_secret
 from app.database.db import SessionLocal
-from app.database.models import Organization, User
+from app.database.models import Organization, User, UserSession
 from app.services.logging_service import log_event
 
 MAX_FAILED_LOGINS = 5
@@ -200,6 +201,70 @@ def change_password(user_id, current_password, new_password):
 
 
 # ---------------------------------------------------
+# API sessions (backend/ - the Streamlit app keeps its
+# own login in st.session_state)
+# ---------------------------------------------------
+
+SESSION_IDLE_LIMIT = timedelta(hours=8)
+SESSION_MAX_AGE = timedelta(days=7)
+SESSION_TOUCH_EVERY = timedelta(minutes=5)   # last_seen_at write throttle
+
+
+def _token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _end_user_sessions(db, user_id):
+    db.query(UserSession).filter_by(user_id=user_id).delete()
+
+
+def create_session(user):
+    """Returns (session token for the cookie, CSRF token). Only the
+    session token's hash is stored."""
+
+    token, csrf_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    with SessionLocal() as db:
+        db.add(UserSession(org_id=user.org_id, user_id=user.id,
+                           token_hash=_token_hash(token), csrf_token=csrf_token))
+        db.commit()
+    return token, csrf_token
+
+
+def session_user(token):
+    """(CurrentUser, csrf_token) for a valid session token, else None.
+    A session ends after 8 hours idle, 7 days in total, or as soon as
+    its user is deactivated, locked or has the password reset."""
+
+    if not token:
+        return None
+
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        session = db.query(UserSession).filter_by(
+            token_hash=_token_hash(token)).first()
+        if session is None:
+            return None
+
+        user = load_user(session.user_id)
+        if (user is None or now - session.last_seen_at > SESSION_IDLE_LIMIT
+                or now - session.created_at > SESSION_MAX_AGE):
+            db.delete(session)
+            db.commit()
+            return None
+
+        if now - session.last_seen_at > SESSION_TOUCH_EVERY:
+            session.last_seen_at = now
+            db.commit()
+        return user, session.csrf_token
+
+
+def end_session(token):
+    with SessionLocal() as db:
+        db.query(UserSession).filter_by(token_hash=_token_hash(token or "")).delete()
+        db.commit()
+
+
+# ---------------------------------------------------
 # User and org management (all permission-checked)
 # ---------------------------------------------------
 
@@ -225,6 +290,8 @@ def set_active(actor, user_id, active):
     with SessionLocal() as db:
         user = _managed_user(db, actor, user_id)
         user.is_active = active
+        if not active:
+            _end_user_sessions(db, user.id)
         db.commit()
     _audit("user_activated" if active else "user_deactivated",
            by=actor.id, user_id=user_id)
@@ -241,6 +308,7 @@ def reset_password(actor, user_id):
         user.must_change_password = True
         user.failed_login_count = 0
         user.locked_at = None
+        _end_user_sessions(db, user.id)
         db.commit()
     _audit("password_reset", by=actor.id, user_id=user_id)
     return temp_password
