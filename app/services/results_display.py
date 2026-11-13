@@ -15,6 +15,7 @@ import io
 import json
 import re
 
+import pandas as pd
 import streamlit as st
 
 
@@ -196,6 +197,114 @@ def build_csv(all_results):
     return output.getvalue()
 
 
+SEVERITY_ICONS = {"high": "🔴", "medium": "🟠", "low": "🟡"}
+
+
+def _bullets(items, empty="None"):
+    st.markdown(
+        "\n".join(f"- {i}" for i in items) if items else f"_{empty}_"
+    )
+
+
+def _table(rows):
+    """Static table that wraps long text (unlike st.dataframe)."""
+    st.table(pd.DataFrame(rows).style.hide(axis="index"))
+
+
+def _render_candidate_details(candidate, profile):
+    """One candidate's details: a summary strip, then tabs."""
+
+    score_col, decision_col, contact_col = st.columns([1, 2, 2])
+    score_col.metric("Score", f"{candidate.get('score', 'N/A')}/100")
+    with decision_col:
+        st.markdown(f"**{_decision_badge(candidate)}**")
+        st.caption(candidate.get("decision_reason") or "")
+    with contact_col:
+        st.markdown("**Contact**")
+        st.caption(_contact_line(candidate) or "Not found on resume")
+
+    if candidate.get("summary"):
+        st.info(candidate["summary"])
+
+    flags = candidate.get("flags", [])
+    overview, scores, phone, flags_tab, profile_tab = st.tabs([
+        "📋 Overview", "📊 Scores", "📞 Phone screen",
+        f"⚠️ Flags ({len(flags)})", "👤 Profile"
+    ])
+
+    with overview:
+        strengths_col, gaps_col = st.columns(2)
+        with strengths_col:
+            st.markdown("##### :green[✅ Strengths]")
+            _bullets(candidate.get("strengths", []), "None listed")
+        with gaps_col:
+            st.markdown("##### :orange[🔸 Gaps]")
+            _bullets(
+                list(candidate.get("missing_skills", []))
+                + list(candidate.get("weaknesses", []))
+            )
+
+    with scores:
+        criteria = candidate.get("criteria", [])
+        if criteria:
+            _table([{
+                "Criterion": c.get("criterion", ""),
+                "Points": f"{c.get('score', 0):g} / {c.get('max_score', 0):g}",
+                "Reason": c.get("reason", ""),
+            } for c in criteria])
+        else:
+            st.caption("No score breakdown returned.")
+
+    with phone:
+        st.markdown("##### :blue[📞 Ask on the phone screen]")
+        questions = candidate.get("phone_screen_questions", [])
+        st.markdown(
+            "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
+            if questions else "_None generated_"
+        )
+
+    with flags_tab:
+        if flags:
+            _table([{
+                "Severity": (
+                    f"{SEVERITY_ICONS.get(f.get('severity'), '⚪')} "
+                    f"{(f.get('severity') or '').title()}"
+                ),
+                "Issue": f.get("description", ""),
+                "Evidence": f.get("evidence") or "",
+            } for f in flags])
+        else:
+            st.success("No flags")
+
+    with profile_tab:
+        if not profile:
+            st.caption("Not available")
+            return
+
+        education = "; ".join(
+            f"{e.get('degree') or 'Degree'} — "
+            f"{e.get('institution') or 'Institution'} "
+            f"({e.get('end_year') or 'N/A'})"
+            for e in profile.get("education", [])
+        )
+        st.markdown(
+            f"**📍 Location:** {profile.get('location') or 'Not stated'}  \n"
+            f"**🎓 Education:** {education or 'None found'}"
+        )
+
+        roles = profile.get("roles", [])
+        if roles:
+            _table([{
+                "Role": r.get("title") or "",
+                "Company": r.get("company") or "",
+                "From": r.get("start_date") or "?",
+                "To": r.get("end_date") or "?",
+            } for r in roles])
+
+        skills = profile.get("skills", [])
+        st.markdown(f"**🛠 Skills:** {', '.join(skills) or 'None found'}")
+
+
 def render_full_results(result_to_render, show_downloads=False):
     """
     Renders the complete screening-results view: counts,
@@ -317,115 +426,14 @@ def render_full_results(result_to_render, show_downloads=False):
             unsafe_allow_html=True
         )
 
-        expander_label = f"📄 {candidate_name} — details"
+        expander_label = (
+            f"📄 {candidate_name} — {_decision_badge(candidate)} · "
+            f"{candidate.get('score', 'N/A')}/100"
+        )
         if flag_count:
-            expander_label += f" ({flag_count} flag(s) ⚠️)"
+            expander_label += f" · {flag_count} flag(s) ⚠️"
 
         with st.expander(expander_label):
-
-            st.metric("Overall Score", f"{candidate.get('score', 'N/A')}/100")
-
-            if _contact_line(candidate):
-                st.write(f"**Contact:** {_contact_line(candidate)}")
-
-            if candidate.get("decision"):
-                st.write(
-                    f"**Decision: {_decision_badge(candidate)}** — "
-                    f"{candidate.get('decision_reason', '')}"
-                )
-
-            if candidate.get("summary"):
-                st.write(f"**Summary:** {candidate['summary']}")
-
-            criteria = candidate.get("criteria", [])
-
-            if criteria:
-                st.write("**Score breakdown:**")
-                for crit in criteria:
-                    st.write(
-                        f"- **{crit.get('criterion', '')}**: "
-                        f"{crit.get('score', 'N/A')}/"
-                        f"{crit.get('max_score', 'N/A')} — "
-                        f"{crit.get('reason', '')}"
-                    )
-
-            st.write("**Strengths:**")
-            for s in candidate.get("strengths", []):
-                st.write(f"• {s}")
-            if not candidate.get("strengths"):
-                st.write("• None listed")
-
-            st.write("**Gaps:**")
-            gap_items = (
-                list(candidate.get("missing_skills", []))
-                + list(candidate.get("weaknesses", []))
+            _render_candidate_details(
+                candidate, parsed_profile_lookup.get(candidate_name)
             )
-            if gap_items:
-                for g in gap_items:
-                    st.write(f"• {g}")
-            else:
-                st.write("• None")
-
-            questions = candidate.get("phone_screen_questions", [])
-            if questions:
-                st.write("**Phone-screen questions:**")
-                for q in questions:
-                    st.write(f"• {q}")
-
-            flags = candidate.get("flags", [])
-            st.write("**Flags:**")
-            if flags:
-                for f in flags:
-                    severity = f.get("severity", "medium")
-                    st.write(
-                        f"- ⚠️ **[{severity.upper()}]** "
-                        f"{f.get('description', '')}"
-                        + (
-                            f" _(evidence: {f.get('evidence')})_"
-                            if f.get("evidence") else ""
-                        )
-                    )
-            else:
-                st.write("- None")
-
-            profile = parsed_profile_lookup.get(candidate_name)
-            st.write("**Parsed profile:**")
-
-            if profile:
-
-                location = profile.get("location")
-                education = profile.get("education", [])
-                roles = profile.get("roles", [])
-                skills = profile.get("skills", [])
-
-                st.caption("Location")
-                st.write(f"• {location or 'Not stated'}")
-
-                st.caption("Education")
-                if education:
-                    for edu in education:
-                        st.write(
-                            f"• {edu.get('degree') or 'Unspecified degree'} — "
-                            f"{edu.get('institution') or 'Unspecified institution'} "
-                            f"({edu.get('end_year') or 'N/A'})"
-                        )
-                else:
-                    st.write("• None found")
-
-                st.caption("Roles")
-                if roles:
-                    for role in roles:
-                        st.write(
-                            f"• {role.get('title') or 'Unspecified role'} at "
-                            f"{role.get('company') or 'Unspecified company'} "
-                            f"({role.get('start_date') or '?'} → "
-                            f"{role.get('end_date') or '?'})"
-                        )
-                else:
-                    st.write("• None found")
-
-                st.caption("Skills")
-                st.write(", ".join(skills) if skills else "None found")
-
-            else:
-                st.write("• Not available")
