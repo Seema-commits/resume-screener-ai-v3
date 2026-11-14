@@ -42,6 +42,24 @@ app.add_middleware(
 )
 
 
+# Browser safety headers on every response; API data is never cached
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    if request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.exception_handler(AuthError)
 def auth_error(request, error):
     """Refusals from the services carry a message safe to show."""

@@ -52,3 +52,15 @@ def test_changing_the_model_screens_everything_again(monkeypatch, fake_llm):
     assert len(sent) == 2 * first
     assert set(sent[first:]) == {"gemini/gemini-2.5-flash"}
     assert result["run_stats"]["reused"] == 0
+
+
+def test_csv_export_neutralises_formulas():
+    from app.services.results_display import build_csv
+    from app.utils.csv_safety import safe_cell
+
+    assert safe_cell("=HYPERLINK(\"http://x\")") == "'=HYPERLINK(\"http://x\")"
+    assert safe_cell("+1") == "'+1" and safe_cell("@SUM(A1)") == "'@SUM(A1)"
+    assert safe_cell("Plain text") == "Plain text" and safe_cell(None) == ""
+    text = build_csv([{"candidate_name": "=cmd|' /C calc'!A0", "summary": "-2+3",
+                       "flags": [], "matched_skills": [], "missing_skills": []}])
+    assert "'=cmd" in text and "'-2+3" in text

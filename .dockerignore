@@ -1,0 +1,8 @@
+# Only app/, backend/ and requirements.txt go into the image
+*
+!requirements.txt
+!app/
+!backend/
+**/__pycache__
+**/*.pyc
+app/.streamlit/secrets.toml
