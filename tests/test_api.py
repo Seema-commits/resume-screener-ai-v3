@@ -233,3 +233,11 @@ def test_scan_upload_limits(client):
     assert screen(client, big)[0].status_code == 413
     no_jd = client.post("/api/scans", files=[docx_file("a.docx", "x")], data={"jd_text": " "})
     assert no_jd.status_code == 400
+
+
+def test_security_headers(client):
+    response = client.get("/api/health")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["Cache-Control"] == "no-store"

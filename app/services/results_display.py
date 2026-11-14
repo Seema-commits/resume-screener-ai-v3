@@ -17,6 +17,7 @@ import re
 
 import pandas as pd
 import streamlit as st
+from app.utils.csv_safety import safe_cell
 
 
 def _slugify(name):
@@ -176,7 +177,7 @@ def build_csv(all_results):
 
     for c in all_results:
 
-        writer.writerow([
+        writer.writerow([safe_cell(v) for v in [
             c.get("candidate_name", ""),
             c.get("email") or "",
             c.get("phone") or "",
@@ -192,7 +193,7 @@ def build_csv(all_results):
             ", ".join(c.get("matched_skills", [])),
             ", ".join(c.get("missing_skills", [])),
             " | ".join(c.get("phone_screen_questions", [])),
-        ])
+        ]])
 
     return output.getvalue()
 
