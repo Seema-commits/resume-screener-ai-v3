@@ -19,7 +19,8 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt pytest
       # No DATABASE_URL: the tests use a temporary SQLite database
-      - run: pytest tests -q
+      # "python -m" puts the repo root on the import path, so "app" is found
+      - run: python -m pytest tests -q
 
   frontend:
     runs-on: ubuntu-latest
