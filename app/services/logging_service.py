@@ -24,11 +24,11 @@ AUDIT_EVENTS = {
     "login_success", "login_failed", "password_changed", "password_reset",
     "user_created", "user_activated", "user_deactivated", "org_created",
     "superadmin_created", "llm_models_changed", "org_key_set",
-    "org_key_removed",
+    "org_key_removed", "password_reset_requested", "password_reset_completed",
 }
 ERROR_EVENTS = {
     "error", "parse_error", "parse_batch_error", "batch_error",
-    "ui_error", "scan_save_error",
+    "ui_error", "scan_save_error", "email_error",
 }
 # Large, for debugging only (masked prompts and full results)
 DEBUG_EVENTS = {"llm_input", "parsed_profiles", "request", "response"}

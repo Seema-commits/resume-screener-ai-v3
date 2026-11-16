@@ -48,14 +48,41 @@ def show_temp_password(email, password):
     st.code(password, language=None)
 
 
+RESET_PARAM = "reset_token"
+RESET_LINK_PATH = f"/?{RESET_PARAM}="
+RESET_SENT = (
+    "If that email belongs to an active account, we've sent a link to "
+    "reset the password. It works once, for 30 minutes - check your spam "
+    "folder too."
+)
+
+
 def login_form():
+    # A reset link opens here. The token is moved out of the address
+    # bar at once, so it isn't left in the browser history.
+    token = st.query_params.get(RESET_PARAM)
+    if token:
+        st.session_state.reset_token = token
+        del st.query_params[RESET_PARAM]
+
+    if st.session_state.get("reset_token"):
+        return reset_password_form()
+    if st.session_state.get("show_forgot_password"):
+        return forgot_password_form()
+
     st.title("🎯 TalentLens AI")
     st.subheader("Sign in")
+    if st.session_state.pop("password_was_reset", False):
+        st.success("Password changed - sign in with your new password.")
 
     with st.form("login"):
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
+
+    if st.button("Forgot password?", type="tertiary"):
+        st.session_state.show_forgot_password = True
+        st.rerun()
 
     if submitted:
         try:
@@ -64,6 +91,57 @@ def login_form():
             st.error(str(e))
             return
         st.session_state.user_id = user.id
+        st.rerun()
+
+
+def forgot_password_form():
+    st.title("🎯 TalentLens AI")
+    st.subheader("Forgot password")
+
+    with st.form("forgot_password"):
+        email = st.text_input("Your account email")
+        submitted = st.form_submit_button("Email me a reset link", type="primary")
+
+    if submitted:
+        try:
+            auth_service.request_password_reset(email, RESET_LINK_PATH)
+            st.success(RESET_SENT)       # same message for any email
+        except AuthError as e:
+            st.warning(str(e))
+
+    if st.button("Back to sign in", type="tertiary"):
+        st.session_state.pop("show_forgot_password", None)
+        st.rerun()
+
+
+def reset_password_form():
+    st.title("🎯 TalentLens AI")
+    st.subheader("Choose a new password")
+
+    with st.form("reset_password"):
+        new = st.text_input(
+            f"New password (at least {auth_service.MIN_PASSWORD_LENGTH} "
+            f"characters)", type="password")
+        confirm = st.text_input("Confirm new password", type="password")
+        submitted = st.form_submit_button("Save password", type="primary")
+
+    if submitted:
+        if new != confirm:
+            st.error("The new passwords don't match.")
+            return
+        try:
+            auth_service.reset_password_with_token(
+                st.session_state.reset_token, new)
+        except AuthError as e:
+            st.error(str(e))
+            return
+        st.session_state.pop("reset_token", None)
+        st.session_state.pop("show_forgot_password", None)
+        st.session_state.password_was_reset = True
+        st.rerun()
+
+    if st.button("Back to sign in", type="tertiary"):
+        st.session_state.pop("reset_token", None)
         st.rerun()
 
 

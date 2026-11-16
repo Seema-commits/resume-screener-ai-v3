@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginIn(BaseModel):
@@ -13,6 +13,15 @@ class LoginIn(BaseModel):
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str
+
+
+class ForgotPasswordIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(max_length=200)
+    new_password: str = Field(max_length=200)
 
 
 class UserCreateIn(BaseModel):

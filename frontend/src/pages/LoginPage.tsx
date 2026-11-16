@@ -1,7 +1,7 @@
 import { Target } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 
 import { useAuth } from '../auth/AuthProvider'
 import { Alert, Button, Card, Field, Input } from '../components/ui'
@@ -30,6 +30,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const passwordWasReset = (location.state as { passwordReset?: boolean } | null)?.passwordReset
 
   if (me) return <Navigate to="/" replace />
 
@@ -54,6 +55,7 @@ export function LoginPage() {
   return (
     <AuthLayout title="Sign in">
       <form onSubmit={submit} className="space-y-4">
+        {passwordWasReset && <Alert tone="success">Password changed - sign in with your new password.</Alert>}
         <Field label="Email">
           <Input type="email" autoComplete="username" required value={email}
                  onChange={e => setEmail(e.target.value)} />
@@ -66,6 +68,9 @@ export function LoginPage() {
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
+        <Link to="/forgot-password" className="block text-center text-sm text-indigo-700 hover:underline">
+          Forgot password?
+        </Link>
       </form>
     </AuthLayout>
   )

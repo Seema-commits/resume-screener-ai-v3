@@ -21,6 +21,24 @@ Both services scale to zero, so for a portfolio this normally stays within the f
   (**must be the same** as Streamlit's, or saved org keys can't be read), and optionally
   `ANTHROPIC_API_KEY` / other provider keys and the `LANGFUSE_*` keys.
 
+## Email for "Forgot password?" (Gmail)
+
+1. Turn on **2-Step Verification** for the Gmail account that will send the emails
+   (myaccount.google.com → Security).
+2. Create an **App Password**: myaccount.google.com/apppasswords → name it `TalentLens` →
+   copy the 16-character password. It only works for sending mail and can be revoked any time.
+3. Add to **Streamlit Secrets** (and later Cloud Run, below):
+   ```toml
+   SMTP_USER = "you@gmail.com"
+   SMTP_PASSWORD = "the 16-character app password"
+   APP_URL = "https://your-app.streamlit.app"     # this front end's own address
+   ```
+   Reboot the app. On Cloud Run `APP_URL` is the Pages address (`https://talentlens.pages.dev`).
+
+Gmail free accounts send up to about 500 emails a day. Recipients may find the first
+emails in spam. Locked out of the Superadmin account? `python -m app.scripts.reset_password`
+with `DATABASE_URL` set (no email needed).
+
 ## 1. API on Cloud Run
 
 Use the region closest to your Neon database.
@@ -30,13 +48,13 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
     artifactregistry.googleapis.com secretmanager.googleapis.com
 
 # Each secret is typed at a prompt - never put it on the command line or in a file
-for name in DATABASE_URL KEY_ENCRYPTION_SECRET ANTHROPIC_API_KEY; do
+for name in DATABASE_URL KEY_ENCRYPTION_SECRET ANTHROPIC_API_KEY SMTP_PASSWORD; do
   read -rsp "$name: " value && printf %s "$value" | gcloud secrets create "$name" --data-file=- ; echo
 done
 
 # Let Cloud Run read them
 PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get project)" --format='value(projectNumber)')
-for name in DATABASE_URL KEY_ENCRYPTION_SECRET ANTHROPIC_API_KEY; do
+for name in DATABASE_URL KEY_ENCRYPTION_SECRET ANTHROPIC_API_KEY SMTP_PASSWORD; do
   gcloud secrets add-iam-policy-binding "$name" \
     --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
     --role=roles/secretmanager.secretAccessor
@@ -46,8 +64,8 @@ done
 gcloud run deploy talentlens-api --source . --region europe-west1 \
   --allow-unauthenticated --min-instances 0 --max-instances 1 \
   --memory 1Gi --timeout 600 \
-  --set-secrets DATABASE_URL=DATABASE_URL:latest,KEY_ENCRYPTION_SECRET=KEY_ENCRYPTION_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest \
-  --set-env-vars COOKIE_SECURE=true,COOKIE_SAMESITE=lax,FRONTEND_ORIGINS=https://talentlens.pages.dev
+  --set-secrets DATABASE_URL=DATABASE_URL:latest,KEY_ENCRYPTION_SECRET=KEY_ENCRYPTION_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,SMTP_PASSWORD=SMTP_PASSWORD:latest \
+  --set-env-vars COOKIE_SECURE=true,COOKIE_SAMESITE=lax,FRONTEND_ORIGINS=https://talentlens.pages.dev,APP_URL=https://talentlens.pages.dev,SMTP_USER=you@gmail.com
 ```
 
 - `--max-instances 1` keeps the "only screen new resumes" cache (held in memory) in one place.

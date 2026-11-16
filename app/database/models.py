@@ -100,6 +100,21 @@ class UserSession(Base):
     last_seen_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PasswordResetToken(Base):
+    """A one-time "forgot password" link. Only a SHA-256 hash of the
+    link's token is stored; it expires after 30 minutes."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)                       # set when used or replaced
+
+
 class OrgLlmSetting(Base):
     """An org's chosen models (LiteLLM names). Orgs without a row use
     the defaults in app/llm_config.py. Never holds keys."""
