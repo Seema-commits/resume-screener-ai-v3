@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import { RequireAuth, RequirePermission } from './auth/guards'
 import { AppShell } from './components/AppShell'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/ResetPasswordPages'
 import { LoginPage } from './pages/LoginPage'
 import { ScanDetailPage } from './pages/ScanDetailPage'
 import { ScanHistoryPage } from './pages/ScanHistoryPage'
@@ -12,6 +13,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/change-password"
              element={<RequireAuth passwordChangePage><ChangePasswordPage /></RequireAuth>} />
       <Route element={<RequireAuth><AppShell /></RequireAuth>}>

@@ -6,7 +6,7 @@ from app.auth.permissions import ACTIONS, ROLE_LABELS, has_permission
 from app.services import auth_service
 from app.services.auth_service import AuthError
 from backend.deps import COOKIE_NAME, cookie_settings, current_session
-from backend.schemas import ChangePasswordIn, LoginIn
+from backend.schemas import ChangePasswordIn, ForgotPasswordIn, LoginIn, ResetPasswordIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -51,3 +51,25 @@ def change_password(body: ChangePasswordIn, session=Depends(current_session)):
     user, csrf_token = session
     auth_service.change_password(user.id, body.current_password, body.new_password)
     return _me(auth_service.load_user(user.id), csrf_token)
+
+
+# The React app's reset page; the token goes after "#", which browsers
+# never send to a server, so it can't end up in any request log.
+RESET_LINK_PATH = "/reset-password#token="
+
+
+@router.post("/forgot-password")
+def forgot_password(body: ForgotPasswordIn):
+    """Always the same answer, whether or not the account exists."""
+
+    try:
+        auth_service.request_password_reset(body.email, RESET_LINK_PATH)
+    except AuthError as e:          # only "not set up"
+        raise HTTPException(503, str(e))
+    return {"ok": True}
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordIn):
+    auth_service.reset_password_with_token(body.token, body.new_password)
+    return {"ok": True}

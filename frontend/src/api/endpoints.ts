@@ -16,6 +16,12 @@ export const logout = () => api<{ ok: boolean }>('/auth/logout', 'POST')
 export const changePassword = (current_password: string, new_password: string) =>
   api<Me>('/auth/change-password', 'POST', { current_password, new_password })
 
+export const forgotPassword = (email: string) =>
+  api<{ ok: boolean }>('/auth/forgot-password', 'POST', { email })
+
+export const resetPassword = (token: string, new_password: string) =>
+  api<{ ok: boolean }>('/auth/reset-password', 'POST', { token, new_password })
+
 // ---------- scans ----------
 
 export interface ScanFilters {

@@ -21,7 +21,8 @@ from app.auth.permissions import (
 )
 from app.config import get_secret
 from app.database.db import SessionLocal
-from app.database.models import Organization, User, UserSession
+from app.database.models import Organization, PasswordResetToken, User, UserSession
+from app.services import email_service
 from app.services.logging_service import log_event
 
 MAX_FAILED_LOGINS = 5
@@ -198,6 +199,113 @@ def change_password(user_id, current_password, new_password):
         user.must_change_password = False
         db.commit()
         _audit("password_changed", user_id=user_id)
+
+
+# ---------------------------------------------------
+# Forgot password: a one-time link by email
+# ---------------------------------------------------
+
+RESET_LINK_LIFETIME = timedelta(minutes=30)
+MAX_RESET_EMAILS_PER_HOUR = 3
+RESET_NOT_SET_UP = (
+    "Password reset by email isn't set up yet. Ask your HR Manager or "
+    "the admin to reset your password."
+)
+INVALID_RESET_LINK = "This reset link is invalid or has expired. Request a new one."
+
+
+def request_password_reset(email, link_path):
+    """Emails a one-time reset link to an active account. Says nothing
+    about whether the account exists: the caller always shows the same
+    message. link_path is the front end's reset page, e.g.
+    "/?reset_token=" - the link's address comes from APP_URL, never
+    from the request."""
+
+    if not email_service.is_configured():
+        raise AuthError(RESET_NOT_SET_UP)
+
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        # Expired links are kept a day (for the hourly limit), then deleted
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.expires_at < now - timedelta(days=1)).delete()
+        db.commit()
+
+        user = db.query(User).filter_by(email=_email(email)).first()
+        org = db.get(Organization, user.org_id) if user else None
+        if user is None or not user.is_active or not org.is_active:
+            _audit("password_reset_requested", reason="unknown_or_inactive")
+            return
+
+        recent = db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.created_at > now - timedelta(hours=1)).count()
+        if recent >= MAX_RESET_EMAILS_PER_HOUR:
+            _audit("password_reset_requested", user_id=user.id, reason="rate_limited")
+            return
+
+        # A new link replaces any earlier one
+        db.query(PasswordResetToken).filter_by(
+            user_id=user.id, used_at=None).update({"used_at": now})
+        token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(
+            org_id=user.org_id, user_id=user.id, token_hash=_token_hash(token),
+            created_at=now, expires_at=now + RESET_LINK_LIFETIME))
+        db.commit()
+        to, name, user_id = user.email, user.name, user.id
+
+    email_service.send_password_reset(
+        to, name, f"{email_service.app_url()}{link_path}{token}",
+        int(RESET_LINK_LIFETIME.total_seconds() // 60))
+    _audit("password_reset_requested", user_id=user_id)
+
+
+def reset_password_with_token(token, new_password):
+    """Sets a new password from a reset link. Also unlocks the account
+    and ends every signed-in API session."""
+
+    _check_new_password(new_password)
+
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        row = db.query(PasswordResetToken).filter_by(
+            token_hash=_token_hash(token or "")).first()
+        if row is None or row.used_at or row.expires_at < now:
+            raise AuthError(INVALID_RESET_LINK)
+
+        user = db.get(User, row.user_id)
+        if not user.is_active:
+            raise AuthError(INVALID_RESET_LINK)
+
+        user.password_hash = _hash(new_password)
+        user.must_change_password = False
+        user.failed_login_count = 0
+        user.locked_at = None
+        db.query(PasswordResetToken).filter_by(
+            user_id=user.id, used_at=None).update({"used_at": now})
+        _end_user_sessions(db, user.id)
+        db.commit()
+    _audit("password_reset_completed", user_id=row.user_id)
+
+
+def set_password_from_cli(email, new_password):
+    """For app/scripts/reset_password.py - whoever can run it already
+    has the database, so no other check. Unlocks the account."""
+
+    _check_new_password(new_password)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(email=_email(email)).first()
+        if user is None:
+            raise AuthError("No user with that email.")
+        user.password_hash = _hash(new_password)
+        user.must_change_password = False
+        user.failed_login_count = 0
+        user.locked_at = None
+        _end_user_sessions(db, user.id)
+        db.commit()
+        user_id = user.id
+    _audit("password_reset", by="command_line", user_id=user_id)
 
 
 # ---------------------------------------------------
